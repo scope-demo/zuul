@@ -1,10 +1,18 @@
 {
+    "annotationProcessor": {
+        "com.google.errorprone:error_prone_core": {
+            "locked": "2.45.0"
+        },
+        "com.uber.nullaway:nullaway": {
+            "locked": "0.13.8"
+        }
+    },
     "compileClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -18,24 +26,40 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
+        }
+    },
+    "errorproneJavac": {
+        "com.google.errorprone:javac": {
+            "locked": "9+181-r4173-1"
         }
     },
     "jmh": {
         "org.openjdk.jmh:jmh-core": {
-            "locked": "1.25"
+            "locked": "1.36"
         },
         "org.openjdk.jmh:jmh-generator-bytecode": {
-            "locked": "1.25"
+            "locked": "1.36"
+        }
+    },
+    "jmhAnnotationProcessor": {
+        "com.google.errorprone:error_prone_core": {
+            "locked": "2.45.0"
+        },
+        "com.uber.nullaway:nullaway": {
+            "locked": "0.13.8"
         }
     },
     "jmhCompileClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -49,25 +73,25 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
         "org.openjdk.jmh:jmh-core": {
-            "locked": "1.25"
+            "locked": "1.36"
         },
         "org.openjdk.jmh:jmh-generator-bytecode": {
-            "locked": "1.25"
+            "locked": "1.36"
         },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
         }
     },
     "jmhRuntimeClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
-        },
-        "com.google.truth:truth": {
-            "locked": "1.0.1"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -81,28 +105,43 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
-        "junit:junit": {
-            "locked": "4.13.2"
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
+        "org.assertj:assertj-core": {
+            "locked": "3.26.3"
+        },
+        "org.junit.jupiter:junit-jupiter-api": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-engine": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-params": {
+            "locked": "5.13.4"
+        },
+        "org.junit.platform:junit-platform-launcher": {
+            "locked": "1.13.4"
         },
         "org.mockito:mockito-core": {
-            "locked": "4.1.0"
+            "locked": "5.23.0"
         },
         "org.openjdk.jmh:jmh-core": {
-            "locked": "1.25"
+            "locked": "1.36"
         },
         "org.openjdk.jmh:jmh-generator-bytecode": {
-            "locked": "1.25"
+            "locked": "1.36"
         },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
         }
     },
     "runtimeClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -116,19 +155,27 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
+        }
+    },
+    "testAnnotationProcessor": {
+        "com.google.errorprone:error_prone_core": {
+            "locked": "2.45.0"
+        },
+        "com.uber.nullaway:nullaway": {
+            "locked": "0.13.8"
         }
     },
     "testCompileClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
-        },
-        "com.google.truth:truth": {
-            "locked": "1.0.1"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -142,25 +189,37 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
-        "junit:junit": {
-            "locked": "4.13.2"
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
+        "org.assertj:assertj-core": {
+            "locked": "3.26.3"
+        },
+        "org.junit.jupiter:junit-jupiter-api": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-engine": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-params": {
+            "locked": "5.13.4"
+        },
+        "org.junit.platform:junit-platform-launcher": {
+            "locked": "1.13.4"
         },
         "org.mockito:mockito-core": {
-            "locked": "4.1.0"
+            "locked": "5.23.0"
         },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
         }
     },
     "testRuntimeClasspath": {
         "com.google.guava:guava": {
-            "locked": "31.0.1-jre"
-        },
-        "com.google.truth:truth": {
-            "locked": "1.0.1"
+            "locked": "33.6.0-jre"
         },
         "com.netflix.eureka:eureka-client": {
-            "locked": "1.9.18"
+            "locked": "2.0.6"
         },
         "com.netflix.ribbon:ribbon-archaius": {
             "locked": "2.4.4"
@@ -174,14 +233,29 @@
         "com.netflix.ribbon:ribbon-loadbalancer": {
             "locked": "2.4.4"
         },
-        "junit:junit": {
-            "locked": "4.13.2"
+        "com.netflix.servo:servo-core": {
+            "locked": "0.13.2"
+        },
+        "org.assertj:assertj-core": {
+            "locked": "3.26.3"
+        },
+        "org.junit.jupiter:junit-jupiter-api": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-engine": {
+            "locked": "5.13.4"
+        },
+        "org.junit.jupiter:junit-jupiter-params": {
+            "locked": "5.13.4"
+        },
+        "org.junit.platform:junit-platform-launcher": {
+            "locked": "1.13.4"
         },
         "org.mockito:mockito-core": {
-            "locked": "4.1.0"
+            "locked": "5.23.0"
         },
         "org.slf4j:slf4j-api": {
-            "locked": "1.7.25"
+            "locked": "2.0.18"
         }
     }
 }

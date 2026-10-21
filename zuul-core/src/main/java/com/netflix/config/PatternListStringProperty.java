@@ -16,38 +16,37 @@
 
 package com.netflix.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * User: michaels@netflix.com
  * Date: 5/15/17
  * Time: 4:38 PM
  */
-public class PatternListStringProperty extends DerivedStringProperty<List<Pattern>>
-{
+public class PatternListStringProperty extends DerivedStringProperty<List<Pattern>> {
     private static final Logger LOG = LoggerFactory.getLogger(PatternListStringProperty.class);
 
-    public PatternListStringProperty(String name, String defaultValue)
-    {
+    public PatternListStringProperty(String name, String defaultValue) {
         super(name, defaultValue);
     }
 
     @Override
-    protected List<Pattern> derive(String value)
-    {
+    protected List<Pattern> derive(String value) {
         ArrayList<Pattern> ptns = new ArrayList<>();
         if (value != null) {
-            for (String ptnTxt : value.split(",")) {
+            for (String ptnTxt : value.split(",", -1)) {
                 try {
                     ptns.add(Pattern.compile(ptnTxt.trim()));
-                }
-                catch (Exception e) {
-                    LOG.error("Error parsing regex pattern list from property! name = " + String.valueOf(this.getName()) + ", value = " + String.valueOf(this.getValue()) + ", pattern = " + String.valueOf(value));
+                } catch (Exception e) {
+                    LOG.error(
+                            "Error parsing regex pattern list from property! name = {}, value = {}, pattern = {}",
+                            String.valueOf(this.getName()),
+                            String.valueOf(this.getValue()),
+                            String.valueOf(value));
                 }
             }
         }

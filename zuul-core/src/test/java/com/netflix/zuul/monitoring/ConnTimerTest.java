@@ -16,8 +16,7 @@
 
 package com.netflix.zuul.monitoring;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.netflix.spectator.api.DefaultRegistry;
 import com.netflix.spectator.api.Registry;
@@ -25,14 +24,11 @@ import com.netflix.spectator.api.histogram.PercentileTimer;
 import com.netflix.zuul.Attrs;
 import com.netflix.zuul.netty.server.Server;
 import io.netty.channel.embedded.EmbeddedChannel;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.jupiter.api.Test;
 
-@RunWith(JUnit4.class)
-public class ConnTimerTest {
+class ConnTimerTest {
     @Test
-    public void record() {
+    void record() {
         EmbeddedChannel chan = new EmbeddedChannel();
         Attrs attrs = Attrs.newInstance();
         chan.attr(Server.CONN_DIMENSIONS).set(attrs);
@@ -44,19 +40,16 @@ public class ConnTimerTest {
         Attrs.newKey("bar").put(attrs, "baz");
         timer.record(4000L, "end");
 
-        PercentileTimer meter1 =
-                PercentileTimer.get(registry, registry.createId("foo.start-middle"));
-        assertNotNull(meter1);
-        assertEquals(1000L, meter1.totalTime());
+        PercentileTimer meter1 = PercentileTimer.get(registry, registry.createId("foo.start-middle"));
+        assertThat(meter1).isNotNull();
+        assertThat(meter1.totalTime()).isEqualTo(1000L);
 
-        PercentileTimer meter2 =
-                PercentileTimer.get(registry, registry.createId("foo.middle-end", "bar", "baz"));
-        assertNotNull(meter2);
-        assertEquals(2000L, meter2.totalTime());
+        PercentileTimer meter2 = PercentileTimer.get(registry, registry.createId("foo.middle-end", "bar", "baz"));
+        assertThat(meter2).isNotNull();
+        assertThat(meter2.totalTime()).isEqualTo(2000L);
 
-        PercentileTimer meter3 =
-                PercentileTimer.get(registry, registry.createId("foo.start-end", "bar", "baz"));
-        assertNotNull(meter3);
-        assertEquals(3000L, meter3.totalTime());
+        PercentileTimer meter3 = PercentileTimer.get(registry, registry.createId("foo.start-end", "bar", "baz"));
+        assertThat(meter3).isNotNull();
+        assertThat(meter3.totalTime()).isEqualTo(3000L);
     }
 }

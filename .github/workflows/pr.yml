@@ -7,33 +7,24 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        java: [8, 11, 15]
+        java: [21]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v6
         with:
           distribution: 'zulu'
           java-version: ${{ matrix.java }}
-      - uses: actions/cache@v2.1.6
-        id: gradle-cache
-        with:
-          path: |
-            ~/.gradle/caches
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
-      - uses: actions/cache@v2.1.6
-        id: gradle-wrapper-cache
-        with:
-          path: |
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradlewrapper-${{ hashFiles('gradle/wrapper/*') }}
+          cache: 'gradle'
       - name: Build
-        run: ./gradlew build
+        run: |
+          sudo env "PATH=$PATH" bash -c "ulimit -l 65536 && ulimit -a && ./gradlew --no-daemon build"
+          echo "Status of build: $?"
   validation:
     name: "Gradle Validation"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: gradle/wrapper-validation-action@v1.0.3
+      - uses: actions/checkout@v7
+      - uses: gradle/actions/wrapper-validation@v6.2.0

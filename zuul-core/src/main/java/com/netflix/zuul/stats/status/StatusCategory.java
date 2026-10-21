@@ -16,16 +16,21 @@
 
 package com.netflix.zuul.stats.status;
 
+import com.google.errorprone.annotations.Immutable;
+
 /**
  * Status Category
  *
  * Author: Arthur Gonigberg
  * Date: December 20, 2017
  */
+@Immutable
 public interface StatusCategory {
     String getId();
 
     StatusCategoryGroup getGroup();
+
+    String getReason();
 
     String name();
 }

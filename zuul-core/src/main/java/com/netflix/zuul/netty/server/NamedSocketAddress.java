@@ -45,10 +45,7 @@ public final class NamedSocketAddress extends SocketAddress {
 
     @Override
     public String toString() {
-        return "NamedSocketAddress{" +
-                "name='" + name + '\'' +
-                ", delegate=" + delegate +
-                '}';
+        return "NamedSocketAddress{" + "name='" + name + '\'' + ", delegate=" + delegate + '}';
     }
 
     @Override

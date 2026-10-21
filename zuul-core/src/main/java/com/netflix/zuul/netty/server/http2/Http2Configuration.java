@@ -24,11 +24,11 @@ import io.netty.handler.ssl.SslContextBuilder;
 import javax.net.ssl.SSLException;
 
 public class Http2Configuration {
-    
+
     public static SslContext configureSSL(SslContextFactory sslContextFactory, String metricId) {
         SslContextBuilder builder = sslContextFactory.createBuilderForServer();
 
-        String[] supportedProtocols = new String[]{ApplicationProtocolNames.HTTP_2, ApplicationProtocolNames.HTTP_1_1};
+        String[] supportedProtocols = new String[] {ApplicationProtocolNames.HTTP_2, ApplicationProtocolNames.HTTP_1_1};
         ApplicationProtocolConfig apn = new ApplicationProtocolConfig(
                 ApplicationProtocolConfig.Protocol.ALPN,
                 // NO_ADVERTISE is currently the only mode supported by both OpenSsl and JDK providers.
@@ -37,11 +37,9 @@ public class Http2Configuration {
                 ApplicationProtocolConfig.SelectedListenerFailureBehavior.ACCEPT,
                 supportedProtocols);
 
-        final SslContext sslContext;
+        SslContext sslContext;
         try {
-            sslContext = builder
-                    .applicationProtocolConfig(apn)
-                    .build();
+            sslContext = builder.applicationProtocolConfig(apn).build();
         } catch (SSLException e) {
             throw new RuntimeException("Error configuring SslContext with ALPN!", e);
         }
@@ -67,9 +65,12 @@ public class Http2Configuration {
                 // ACCEPT is currently the only mode supported by both OpenSsl and JDK providers.
                 ApplicationProtocolConfig.SelectedListenerFailureBehavior.ACCEPT,
                 ApplicationProtocolNames.HTTP_1_1);
-        final SslContext sslContext;
+        SslContext sslContext;
         try {
-            sslContext = sslContextFactory.createBuilderForServer().applicationProtocolConfig(apn).build();
+            sslContext = sslContextFactory
+                    .createBuilderForServer()
+                    .applicationProtocolConfig(apn)
+                    .build();
         } catch (SSLException e) {
             throw new RuntimeException("Error configuring SslContext with ALPN!", e);
         }

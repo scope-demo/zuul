@@ -47,11 +47,7 @@ public abstract class PushChannelInitializer extends BaseZuulChannelInitializer 
     protected void addHttp1Handlers(ChannelPipeline pipeline) {
         pipeline.addLast(
                 HTTP_CODEC_HANDLER_NAME,
-                new HttpServerCodec(
-                        MAX_INITIAL_LINE_LENGTH.get(),
-                        MAX_HEADER_SIZE.get(),
-                        MAX_CHUNK_SIZE.get(),
-                        false));
+                new HttpServerCodec(MAX_INITIAL_LINE_LENGTH.get(), MAX_HEADER_SIZE.get(), MAX_CHUNK_SIZE.get(), false));
         pipeline.addLast(new HttpObjectAggregator(8192));
     }
 
@@ -62,7 +58,7 @@ public abstract class PushChannelInitializer extends BaseZuulChannelInitializer 
 
     @Override
     protected void initChannel(Channel ch) throws Exception {
-        final ChannelPipeline pipeline = ch.pipeline();
+        ChannelPipeline pipeline = ch.pipeline();
         storeChannel(ch);
         addTcpRelatedHandlers(pipeline);
         addHttp1Handlers(pipeline);
@@ -70,5 +66,5 @@ public abstract class PushChannelInitializer extends BaseZuulChannelInitializer 
         addPushHandlers(pipeline);
     }
 
-    protected abstract void addPushHandlers(final ChannelPipeline pipeline);
+    protected abstract void addPushHandlers(ChannelPipeline pipeline);
 }

@@ -16,9 +16,8 @@
 
 package com.netflix.netty.common.throttle;
 
-import static com.netflix.netty.common.throttle.MaxInboundConnectionsHandler.ATTR_CH_THROTTLED;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.netflix.spectator.api.Counter;
 import com.netflix.spectator.api.DefaultRegistry;
 import com.netflix.spectator.api.Id;
@@ -26,40 +25,57 @@ import com.netflix.spectator.api.Registry;
 import com.netflix.zuul.netty.server.http2.DummyChannelHandler;
 import com.netflix.zuul.passport.CurrentPassport;
 import com.netflix.zuul.passport.PassportState;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-@RunWith(JUnit4.class)
-public class MaxInboundConnectionsHandlerTest {
+class MaxInboundConnectionsHandlerTest {
 
-    private Registry registry = new DefaultRegistry();
-    private String listener = "test-throttled";
+    private Registry registry;
     private Id counterId;
+    private EmbeddedChannel channel;
 
-    @Before
-    public void setup() {
+    @BeforeEach
+    void setup() {
+        String listener = "test-throttled";
+        registry = new DefaultRegistry();
         counterId = registry.createId("server.connections.throttled").withTags("id", listener);
+        channel = new EmbeddedChannel(new MaxInboundConnectionsHandler(registry, listener, 1));
     }
 
     @Test
-    public void verifyPassportStateAndAttrs() {
+    void verifyPassportStateAndAttrs() {
+        channel.pipeline().addFirst(new DummyChannelHandler());
 
-        final EmbeddedChannel channel = new EmbeddedChannel();
-        channel.pipeline().addLast(new DummyChannelHandler());
-        channel.pipeline().addLast(new MaxInboundConnectionsHandler(registry, listener, 1));
+        // Fire 1 time, since EmbeddedChannel calls channelActive in the constructor
+        channel.pipeline().fireChannelActive();
 
-        // Fire twice to increment current conns. count
-        channel.pipeline().context(DummyChannelHandler.class).fireChannelActive();
-        channel.pipeline().context(DummyChannelHandler.class).fireChannelActive();
+        Counter throttledCount = (Counter) registry.get(counterId);
 
-        final Counter throttledCount = (Counter) registry.get(counterId);
+        assertThat(throttledCount.count()).isEqualTo(1);
+        assertThat(CurrentPassport.fromChannel(channel).getState()).isEqualTo(PassportState.SERVER_CH_THROTTLING);
+        assertThat(channel.attr(MaxInboundConnectionsHandler.ATTR_CH_THROTTLED).get())
+                .isTrue();
+    }
 
-        assertEquals(1, throttledCount.count());
-        assertEquals(PassportState.SERVER_CH_THROTTLING, CurrentPassport.fromChannel(channel).getState());
-        assertTrue(channel.attr(ATTR_CH_THROTTLED).get());
+    @Test
+    void verifyCloseNotOnPipeline() {
+        AtomicBoolean seen = new AtomicBoolean(false);
+        channel.pipeline().addLast(new ChannelDuplexHandler() {
+            @Override
+            public void close(ChannelHandlerContext ctx, ChannelPromise promise) {
+                seen.set(true);
+                ctx.close(promise);
+            }
+        });
 
+        channel.pipeline().fireChannelActive();
+
+        assertThat(channel.isActive()).isFalse();
+        assertThat(seen).isFalse();
     }
 }

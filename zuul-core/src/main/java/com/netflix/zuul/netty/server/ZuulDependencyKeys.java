@@ -24,14 +24,15 @@ import com.netflix.netty.common.metrics.EventLoopGroupMetrics;
 import com.netflix.netty.common.status.ServerStatusManager;
 import com.netflix.spectator.api.Counter;
 import com.netflix.spectator.api.Registry;
+import com.netflix.spectator.api.histogram.PercentileTimer;
 import com.netflix.zuul.FilterLoader;
 import com.netflix.zuul.FilterUsageNotifier;
 import com.netflix.zuul.RequestCompleteHandler;
 import com.netflix.zuul.context.SessionContextDecorator;
+import com.netflix.zuul.netty.filter.FilterConstraints;
 import com.netflix.zuul.netty.server.push.PushConnectionRegistry;
 import io.netty.channel.ChannelHandler;
-
-import javax.inject.Provider;
+import jakarta.inject.Provider;
 
 /**
  * User: michaels@netflix.com
@@ -40,20 +41,38 @@ import javax.inject.Provider;
  */
 public class ZuulDependencyKeys {
 
-    public static final ChannelConfigKey<AccessLogPublisher> accessLogPublisher = new ChannelConfigKey<>("accessLogPublisher");
-    public static final ChannelConfigKey<EventLoopGroupMetrics> eventLoopGroupMetrics = new ChannelConfigKey<>("eventLoopGroupMetrics");
+    public static final ChannelConfigKey<AccessLogPublisher> accessLogPublisher =
+            new ChannelConfigKey<>("accessLogPublisher");
+    public static final ChannelConfigKey<EventLoopGroupMetrics> eventLoopGroupMetrics =
+            new ChannelConfigKey<>("eventLoopGroupMetrics");
     public static final ChannelConfigKey<Registry> registry = new ChannelConfigKey<>("registry");
-    public static final ChannelConfigKey<SessionContextDecorator> sessionCtxDecorator = new ChannelConfigKey<>("sessionCtxDecorator");
-    public static final ChannelConfigKey<RequestCompleteHandler> requestCompleteHandler = new ChannelConfigKey<>("requestCompleteHandler");
-    public static final ChannelConfigKey<Counter> httpRequestReadTimeoutCounter = new ChannelConfigKey<>("httpRequestReadTimeoutCounter");
+    public static final ChannelConfigKey<SessionContextDecorator> sessionCtxDecorator =
+            new ChannelConfigKey<>("sessionCtxDecorator");
+    public static final ChannelConfigKey<RequestCompleteHandler> requestCompleteHandler =
+            new ChannelConfigKey<>("requestCompleteHandler");
+    public static final ChannelConfigKey<Counter> httpRequestHeadersReadTimeoutCounter =
+            new ChannelConfigKey<>("httpRequestHeadersReadTimeoutCounter");
+    public static final ChannelConfigKey<PercentileTimer> httpRequestHeadersReadTimer =
+            new ChannelConfigKey<>("httpRequestHeadersReadTimer");
+    public static final ChannelConfigKey<Counter> httpRequestReadTimeoutCounter =
+            new ChannelConfigKey<>("httpRequestReadTimeoutCounter");
     public static final ChannelConfigKey<FilterLoader> filterLoader = new ChannelConfigKey<>("filterLoader");
-    public static final ChannelConfigKey<FilterUsageNotifier> filterUsageNotifier = new ChannelConfigKey<>("filterUsageNotifier");
+    public static final ChannelConfigKey<FilterUsageNotifier> filterUsageNotifier =
+            new ChannelConfigKey<>("filterUsageNotifier");
     public static final ChannelConfigKey<EurekaClient> discoveryClient = new ChannelConfigKey<>("discoveryClient");
-    public static final ChannelConfigKey<ApplicationInfoManager> applicationInfoManager = new ChannelConfigKey<>("applicationInfoManager");
-    public static final ChannelConfigKey<ServerStatusManager> serverStatusManager = new ChannelConfigKey<>("serverStatusManager");
-    public static final ChannelConfigKey<Boolean> SSL_CLIENT_CERT_CHECK_REQUIRED = new ChannelConfigKey<>("requiresSslClientCertCheck", false);
+    public static final ChannelConfigKey<ApplicationInfoManager> applicationInfoManager =
+            new ChannelConfigKey<>("applicationInfoManager");
+    public static final ChannelConfigKey<ServerStatusManager> serverStatusManager =
+            new ChannelConfigKey<>("serverStatusManager");
+    public static final ChannelConfigKey<Boolean> SSL_CLIENT_CERT_CHECK_REQUIRED =
+            new ChannelConfigKey<>("requiresSslClientCertCheck", false);
 
-    public static final ChannelConfigKey<Provider<ChannelHandler>> rateLimitingChannelHandlerProvider = new ChannelConfigKey<>("rateLimitingChannelHandlerProvider");
-    public static final ChannelConfigKey<Provider<ChannelHandler>> sslClientCertCheckChannelHandlerProvider = new ChannelConfigKey<>("sslClientCertCheckChannelHandlerProvider");
-    public static final ChannelConfigKey<PushConnectionRegistry> pushConnectionRegistry = new ChannelConfigKey<>("pushConnectionRegistry");
+    public static final ChannelConfigKey<Provider<ChannelHandler>> rateLimitingChannelHandlerProvider =
+            new ChannelConfigKey<>("rateLimitingChannelHandlerProvider");
+    public static final ChannelConfigKey<Provider<ChannelHandler>> sslClientCertCheckChannelHandlerProvider =
+            new ChannelConfigKey<>("sslClientCertCheckChannelHandlerProvider");
+    public static final ChannelConfigKey<PushConnectionRegistry> pushConnectionRegistry =
+            new ChannelConfigKey<>("pushConnectionRegistry");
+    public static final ChannelConfigKey<FilterConstraints> filterConstraints =
+            new ChannelConfigKey<>("filterConstraints");
 }

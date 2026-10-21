@@ -16,11 +16,13 @@
 
 package com.netflix.zuul.netty.server.http2;
 
-import static com.netflix.zuul.netty.server.BaseZuulChannelInitializer.HTTP_CODEC_HANDLER_NAME;
-
 import com.netflix.netty.common.channel.config.ChannelConfig;
 import com.netflix.netty.common.channel.config.CommonChannelConfigKeys;
+import com.netflix.netty.common.close.Http2ConnectionCloseHandler;
 import com.netflix.netty.common.http2.DynamicHttp2FrameLogger;
+import com.netflix.spectator.api.Spectator;
+import com.netflix.zuul.netty.server.BaseZuulChannelInitializer;
+import com.netflix.zuul.netty.server.psk.TlsPskHandler;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
@@ -34,48 +36,110 @@ import io.netty.handler.codec.http2.UniformStreamByteDistributor;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.ssl.ApplicationProtocolNames;
 import io.netty.handler.ssl.ApplicationProtocolNegotiationHandler;
+import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.util.AttributeKey;
 import java.util.function.Consumer;
 
 /**
  * Http2 Or Http Handler
- *
+ * <p>
  * Author: Arthur Gonigberg
  * Date: December 15, 2017
  */
 public class Http2OrHttpHandler extends ApplicationProtocolNegotiationHandler {
     public static final AttributeKey<String> PROTOCOL_NAME = AttributeKey.valueOf("protocol_name");
+    public static final String PROTOCOL_HTTP_1_1 = "HTTP/1.1";
+    public static final String PROTOCOL_HTTP_2 = "HTTP/2";
 
-    private static final DynamicHttp2FrameLogger FRAME_LOGGER = new DynamicHttp2FrameLogger(LogLevel.DEBUG, Http2FrameCodec.class);
+    private static final String FALLBACK_APPLICATION_PROTOCOL = ApplicationProtocolNames.HTTP_1_1;
+
+    private static final DynamicHttp2FrameLogger FRAME_LOGGER =
+            new DynamicHttp2FrameLogger(LogLevel.DEBUG, Http2FrameCodec.class);
 
     private final ChannelHandler http2StreamHandler;
     private final int maxConcurrentStreams;
     private final int initialWindowSize;
     private final long maxHeaderTableSize;
     private final long maxHeaderListSize;
+    private final boolean catchConnectionErrors;
+    private final boolean connectProtocolEnabled;
+
+    // controls the number of rst frames that will be sent to a client before closing the connection
+    private final int maxEncoderRstFrames;
+    private final int maxEncoderRstFramesWindow;
+    private final int maxConsecutiveContinuationFrames;
+    private final int gracefulShutdownTimeoutMillis;
     private final Consumer<ChannelPipeline> addHttpHandlerFn;
 
-
-    public Http2OrHttpHandler(ChannelHandler http2StreamHandler, ChannelConfig channelConfig,
-                              Consumer<ChannelPipeline> addHttpHandlerFn) {
-        super(ApplicationProtocolNames.HTTP_1_1);
+    public Http2OrHttpHandler(
+            ChannelHandler http2StreamHandler,
+            ChannelConfig channelConfig,
+            Consumer<ChannelPipeline> addHttpHandlerFn) {
+        super(FALLBACK_APPLICATION_PROTOCOL);
         this.http2StreamHandler = http2StreamHandler;
         this.maxConcurrentStreams = channelConfig.get(CommonChannelConfigKeys.maxConcurrentStreams);
         this.initialWindowSize = channelConfig.get(CommonChannelConfigKeys.initialWindowSize);
         this.maxHeaderTableSize = channelConfig.get(CommonChannelConfigKeys.maxHttp2HeaderTableSize);
         this.maxHeaderListSize = channelConfig.get(CommonChannelConfigKeys.maxHttp2HeaderListSize);
+        this.catchConnectionErrors = channelConfig.get(CommonChannelConfigKeys.http2CatchConnectionErrors);
+        this.maxEncoderRstFrames = channelConfig.get(CommonChannelConfigKeys.http2EncoderMaxResetFrames);
+        this.maxEncoderRstFramesWindow = channelConfig.get(CommonChannelConfigKeys.http2EncoderMaxResetFramesWindow);
+        this.connectProtocolEnabled = channelConfig.get(CommonChannelConfigKeys.http2ConnectProtocolEnabled);
+        this.gracefulShutdownTimeoutMillis =
+                channelConfig.get(CommonChannelConfigKeys.http2GracefulShutdownTimeoutMillis);
+        this.maxConsecutiveContinuationFrames =
+                channelConfig.get(CommonChannelConfigKeys.http2EncoderMaxConsecutiveContinuationFrames);
         this.addHttpHandlerFn = addHttpHandlerFn;
+    }
+
+    /**
+     * this method is inspired by ApplicationProtocolNegotiationHandler.userEventTriggered
+     */
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof SslHandshakeCompletionEvent handshakeEvent) {
+            if (handshakeEvent.isSuccess()) {
+                TlsPskHandler tlsPskHandler = ctx.channel().pipeline().get(TlsPskHandler.class);
+                if (tlsPskHandler != null) {
+                    // PSK mode
+                    try {
+                        String tlsPskApplicationProtocol = tlsPskHandler.getApplicationProtocol();
+                        configurePipeline(
+                                ctx,
+                                tlsPskApplicationProtocol != null
+                                        ? tlsPskApplicationProtocol
+                                        : FALLBACK_APPLICATION_PROTOCOL);
+                    } catch (Throwable cause) {
+                        exceptionCaught(ctx, cause);
+                    } finally {
+                        // Handshake failures are handled in exceptionCaught(...).
+                        if (handshakeEvent.isSuccess()) {
+                            removeSelfIfPresent(ctx);
+                        }
+                    }
+                } else {
+                    // non PSK mode
+                    super.userEventTriggered(ctx, evt);
+                }
+            } else {
+                // handshake failures
+                // TODO sunnys - handle PSK handshake failures
+                super.userEventTriggered(ctx, evt);
+            }
+        } else {
+            super.userEventTriggered(ctx, evt);
+        }
     }
 
     @Override
     protected void configurePipeline(ChannelHandlerContext ctx, String protocol) throws Exception {
-        if (ApplicationProtocolNames.HTTP_2.equals(protocol)) {
-            ctx.channel().attr(PROTOCOL_NAME).set("HTTP/2");
+        if (protocol.equals(ApplicationProtocolNames.HTTP_2)) {
+            ctx.channel().attr(PROTOCOL_NAME).set(PROTOCOL_HTTP_2);
             configureHttp2(ctx.pipeline());
             return;
         }
-        if (ApplicationProtocolNames.HTTP_1_1.equals(protocol)) {
-            ctx.channel().attr(PROTOCOL_NAME).set("HTTP/1.1");
+        if (protocol.equals(ApplicationProtocolNames.HTTP_1_1)) {
+            ctx.channel().attr(PROTOCOL_NAME).set(PROTOCOL_HTTP_1_1);
             configureHttp1(ctx.pipeline());
             return;
         }
@@ -90,26 +154,41 @@ public class Http2OrHttpHandler extends ApplicationProtocolNegotiationHandler {
                 .maxConcurrentStreams(maxConcurrentStreams)
                 .initialWindowSize(initialWindowSize)
                 .headerTableSize(maxHeaderTableSize)
-                .maxHeaderListSize(maxHeaderListSize);
+                .maxHeaderListSize(maxHeaderListSize)
+                .connectProtocolEnabled(connectProtocolEnabled);
 
         Http2FrameCodec frameCodec = Http2FrameCodecBuilder.forServer()
                 .frameLogger(FRAME_LOGGER)
                 .initialSettings(settings)
                 .validateHeaders(true)
+                .encoderEnforceMaxRstFramesPerWindow(maxEncoderRstFrames, maxEncoderRstFramesWindow)
+                .decoderEnforceMaxSmallContinuationFrames(maxConsecutiveContinuationFrames)
+                .gracefulShutdownTimeoutMillis(gracefulShutdownTimeoutMillis)
                 .build();
         Http2Connection conn = frameCodec.connection();
         // Use the uniform byte distributor until https://github.com/netty/netty/issues/10525 is fixed.
-        conn.remote().flowController(
-                new DefaultHttp2RemoteFlowController(conn, new UniformStreamByteDistributor(conn)));
+        conn.remote()
+                .flowController(new DefaultHttp2RemoteFlowController(conn, new UniformStreamByteDistributor(conn)));
 
         Http2MultiplexHandler multiplexHandler = new Http2MultiplexHandler(http2StreamHandler);
 
         // The frame codec MUST be in the pipeline.
-        pipeline.addBefore("codec_placeholder", /* name= */ null, frameCodec);
-        pipeline.replace("codec_placeholder", HTTP_CODEC_HANDLER_NAME, multiplexHandler);
+        pipeline.addBefore("codec_placeholder", null, frameCodec);
+        pipeline.replace("codec_placeholder", BaseZuulChannelInitializer.HTTP_CODEC_HANDLER_NAME, multiplexHandler);
+        if (catchConnectionErrors) {
+            pipeline.addLast(new Http2ConnectionErrorHandler());
+        }
+        pipeline.addLast(new Http2ConnectionCloseHandler(Spectator.globalRegistry()));
     }
 
     private void configureHttp1(ChannelPipeline pipeline) {
         addHttpHandlerFn.accept(pipeline);
+    }
+
+    private void removeSelfIfPresent(ChannelHandlerContext ctx) {
+        ChannelPipeline pipeline = ctx.pipeline();
+        if (!ctx.isRemoved()) {
+            pipeline.remove(this);
+        }
     }
 }

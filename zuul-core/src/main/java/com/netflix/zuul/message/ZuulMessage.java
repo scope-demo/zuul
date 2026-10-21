@@ -22,7 +22,6 @@ import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.LastHttpContent;
 import javax.annotation.Nullable;
 
-
 /**
  * Represents a message that propagates through the Zuul filter chain.
  */
@@ -60,13 +59,15 @@ public interface ZuulMessage extends Cloneable {
     void setHasBody(boolean hasBody);
 
     /**
-     * Returns the message body.  If there is no message body, this returns {@code null}.
+     * Returns the message body.
+     * This is the entire buffered body, regardless of whether the underlying body chunks have been read or not.
+     * If there is no message body, this returns {@code null}.
      */
     @Nullable
     byte[] getBody();
 
     /**
-     * Returns the length of the message body, or {@code 0} if there isn't a message present.
+     * Returns the length of the entire buffered message body, or {@code 0} if there isn't a message present.
      */
     int getBodyLength();
 
@@ -127,6 +128,12 @@ public interface ZuulMessage extends Cloneable {
     String getBodyAsText();
 
     /**
+     * Reset the chunked body reader indexes. Users SHOULD call this method before retrying requests
+     * as the chunked body buffer will have had the reader indexes changed during channel writes.
+     */
+    void resetBodyReader();
+
+    /**
      * Returns the maximum body size that this message is willing to hold.  This value value should be more than the
      * sum of lengths of the body chunks.  The max body size may not be strictly enforced, and is informational.
      */
@@ -138,7 +145,7 @@ public interface ZuulMessage extends Cloneable {
     ZuulMessage clone();
 
     /**
-     * Returns a string that reprsents this message which is suitable for debugging.
+     * Returns a string that represents this message which is suitable for debugging.
      */
     String getInfoForLogging();
 }

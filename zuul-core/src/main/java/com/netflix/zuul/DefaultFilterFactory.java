@@ -16,22 +16,24 @@
 package com.netflix.zuul;
 
 import com.netflix.zuul.filters.ZuulFilter;
+import java.lang.reflect.InvocationTargetException;
 
 /**
- * Default factory for creating instances of ZuulFilter. 
+ * Default factory for creating instances of ZuulFilter.
  */
 public class DefaultFilterFactory implements FilterFactory {
 
     /**
-     * Returns a new implementation of ZuulFilter as specified by the provided 
+     * Returns a new implementation of ZuulFilter as specified by the provided
      * Class. The Class is instantiated using its nullary constructor.
-     * 
+     *
      * @param clazz the Class to instantiate
      * @return A new instance of ZuulFilter
      */
     @Override
-    public ZuulFilter newInstance(Class clazz) throws InstantiationException, IllegalAccessException {
-        return (ZuulFilter) clazz.newInstance();
+    public ZuulFilter<?, ?> newInstance(Class<?> clazz)
+            throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
+                    NoSuchMethodException {
+        return (ZuulFilter<?, ?>) clazz.getDeclaredConstructor().newInstance();
     }
-
 }

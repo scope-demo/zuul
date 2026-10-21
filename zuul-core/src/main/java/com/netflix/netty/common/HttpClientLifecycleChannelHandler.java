@@ -24,88 +24,92 @@ import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.util.AttributeKey;
 
 /**
  * @author michaels
  */
-public class HttpClientLifecycleChannelHandler extends HttpLifecycleChannelHandler
-{
+public class HttpClientLifecycleChannelHandler extends HttpLifecycleChannelHandler {
     public static final ChannelHandler INBOUND_CHANNEL_HANDLER = new HttpClientLifecycleInboundChannelHandler();
     public static final ChannelHandler OUTBOUND_CHANNEL_HANDLER = new HttpClientLifecycleOutboundChannelHandler();
 
+    public static final AttributeKey<Boolean> ATTR_OUTBOUND_LAST_CONTENT_PENDING =
+            AttributeKey.newInstance("_outbound_last_content_pending");
+
     @ChannelHandler.Sharable
-    private static class HttpClientLifecycleInboundChannelHandler extends ChannelInboundHandlerAdapter
-    {
+    private static class HttpClientLifecycleInboundChannelHandler extends ChannelInboundHandlerAdapter {
         @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception
-        {
-            if (msg instanceof HttpResponse) {
-                ctx.channel().attr(ATTR_HTTP_RESP).set((HttpResponse) msg);
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof HttpResponse httpResponse) {
+                ctx.channel().attr(ATTR_HTTP_RESP).set(httpResponse);
             }
 
             try {
                 super.channelRead(ctx, msg);
-            }
-            finally {
+            } finally {
                 if (msg instanceof LastHttpContent) {
-                    fireCompleteEventIfNotAlready(ctx, CompleteReason.SESSION_COMPLETE);
+                    HttpResponse resp = ctx.channel().attr(ATTR_HTTP_RESP).get();
+                    if (!isInterimResponse(resp)) {
+                        fireCompleteEventIfNotAlready(ctx, CompleteReason.SESSION_COMPLETE);
+                    }
                 }
             }
         }
 
         @Override
-        public void channelInactive(ChannelHandlerContext ctx) throws Exception
-        {
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
             try {
                 super.channelInactive(ctx);
-            }
-            finally {
+            } finally {
                 fireCompleteEventIfNotAlready(ctx, CompleteReason.INACTIVE);
             }
         }
-
     }
 
     @ChannelHandler.Sharable
-    private static class HttpClientLifecycleOutboundChannelHandler extends ChannelOutboundHandlerAdapter
-    {
+    private static class HttpClientLifecycleOutboundChannelHandler extends ChannelOutboundHandlerAdapter {
         @Override
-        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception
-        {
-            if (msg instanceof HttpRequest) {
-                fireStartEvent(ctx, (HttpRequest) msg);
+        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+            if (msg instanceof HttpRequest httpRequest) {
+                ctx.channel().attr(ATTR_OUTBOUND_LAST_CONTENT_PENDING).set(Boolean.TRUE);
+                fireStartEvent(ctx, httpRequest);
+            }
+
+            if (msg instanceof LastHttpContent) {
+                // only clear after content write succeeds to account for retrans
+                promise.addListener(future -> {
+                    if (future.isSuccess()) {
+                        ctx.channel().attr(ATTR_OUTBOUND_LAST_CONTENT_PENDING).set(null);
+                    }
+                });
             }
 
             super.write(ctx, msg, promise);
         }
 
         @Override
-        public void disconnect(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception
-        {
+        public void disconnect(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
             fireCompleteEventIfNotAlready(ctx, CompleteReason.DISCONNECT);
 
             super.disconnect(ctx, promise);
         }
 
         @Override
-        public void deregister(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception
-        {
+        public void deregister(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
             fireCompleteEventIfNotAlready(ctx, CompleteReason.DEREGISTER);
 
             super.deregister(ctx, promise);
         }
 
         @Override
-        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception
-        {
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             super.exceptionCaught(ctx, cause);
 
             fireCompleteEventIfNotAlready(ctx, CompleteReason.EXCEPTION);
         }
 
         @Override
-        public void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception
-        {
+        public void close(ChannelHandlerContext ctx, ChannelPromise promise) throws Exception {
             fireCompleteEventIfNotAlready(ctx, CompleteReason.CLOSE);
 
             super.close(ctx, promise);

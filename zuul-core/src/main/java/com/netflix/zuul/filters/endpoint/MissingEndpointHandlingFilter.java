@@ -31,7 +31,8 @@ import org.slf4j.LoggerFactory;
  * Created by saroskar on 2/13/17.
  */
 @Filter(order = 0, type = FilterType.ENDPOINT)
-public final class MissingEndpointHandlingFilter extends SyncZuulFilterAdapter<HttpRequestMessage, HttpResponseMessage> {
+public final class MissingEndpointHandlingFilter
+        extends SyncZuulFilterAdapter<HttpRequestMessage, HttpResponseMessage> {
     private final String name;
 
     private static final Logger LOG = LoggerFactory.getLogger(MissingEndpointHandlingFilter.class);
@@ -42,9 +43,9 @@ public final class MissingEndpointHandlingFilter extends SyncZuulFilterAdapter<H
 
     @Override
     public HttpResponseMessage apply(HttpRequestMessage request) {
-        final SessionContext zuulCtx = request.getContext();
+        SessionContext zuulCtx = request.getContext();
         zuulCtx.setErrorResponseSent(true);
-        final String errMesg = "Missing Endpoint filter, name = " + name;
+        String errMesg = "Missing Endpoint filter, name = " + name;
         zuulCtx.setError(new ZuulException(errMesg, true));
         LOG.error(errMesg);
         return new HttpResponseMessageImpl(zuulCtx, request, 500);
@@ -56,7 +57,7 @@ public final class MissingEndpointHandlingFilter extends SyncZuulFilterAdapter<H
     }
 
     @Override
-    public HttpResponseMessage getDefaultOutput(final HttpRequestMessage input) {
+    public HttpResponseMessage getDefaultOutput(HttpRequestMessage input) {
         return HttpResponseMessageImpl.defaultErrorResponse(input);
     }
 }

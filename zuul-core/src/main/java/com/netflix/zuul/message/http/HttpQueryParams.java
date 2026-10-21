@@ -16,18 +16,19 @@
 package com.netflix.zuul.message.http;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
-import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -36,21 +37,18 @@ import java.util.StringTokenizer;
  * Date: 2/24/15
  * Time: 10:58 AM
  */
-public class HttpQueryParams implements Cloneable
-{
+public class HttpQueryParams implements Cloneable {
     private final ListMultimap<String, String> delegate;
     private final boolean immutable;
-    private final HashMap<String, Boolean> trailingEquals;
+    private final Map<String, Boolean> trailingEquals;
 
-    public HttpQueryParams()
-    {
-        delegate = ArrayListMultimap.create();
+    public HttpQueryParams() {
+        delegate = LinkedListMultimap.create();
         immutable = false;
         trailingEquals = new HashMap<>();
     }
 
-    private HttpQueryParams(ListMultimap<String, String> delegate)
-    {
+    private HttpQueryParams(ListMultimap<String, String> delegate) {
         this.delegate = delegate;
         immutable = ImmutableListMultimap.class.isAssignableFrom(delegate.getClass());
         trailingEquals = new HashMap<>();
@@ -73,10 +71,9 @@ public class HttpQueryParams implements Cloneable
                 String value = s.substring(i + 1);
 
                 try {
-                    name = URLDecoder.decode(name, "UTF-8");
-                    value = URLDecoder.decode(value, "UTF-8");
-                }
-                catch (Exception e) {
+                    name = URLDecoder.decode(name, StandardCharsets.UTF_8);
+                    value = URLDecoder.decode(value, StandardCharsets.UTF_8);
+                } catch (Exception e) {
                     // do nothing
                 }
 
@@ -88,13 +85,12 @@ public class HttpQueryParams implements Cloneable
                 }
             }
             // key only
-            else if (s.length() > 0) {
+            else if (!s.isEmpty()) {
                 String name = s;
 
                 try {
-                    name = URLDecoder.decode(name, "UTF-8");
-                }
-                catch (Exception e) {
+                    name = URLDecoder.decode(name, StandardCharsets.UTF_8);
+                } catch (Exception e) {
                     // do nothing
                 }
 
@@ -109,66 +105,74 @@ public class HttpQueryParams implements Cloneable
      * Get the first value found for this key even if there are multiple. If none, then
      * return null.
      */
-    public String getFirst(String name)
-    {
+    public String getFirst(String name) {
         List<String> values = delegate.get(name);
-        if (values != null) {
-            if (values.size() > 0) {
-                return values.get(0);
-            }
+        if (!values.isEmpty()) {
+            return values.get(0);
         }
         return null;
     }
 
-    public List<String> get(String name)
-    {
-        return delegate.get(name.toLowerCase());
+    public List<String> get(String name) {
+        return delegate.get(name);
     }
 
-    public boolean contains(String name)
-    {
+    public List<String> getIgnoreCase(String name) {
+        List<String> values = new ArrayList<>();
+        for (Entry<String, String> entry : delegate.entries()) {
+            if (entry.getKey().equalsIgnoreCase(name)) {
+                values.add(entry.getValue());
+            }
+        }
+
+        return values;
+    }
+
+    public boolean contains(String name) {
         return delegate.containsKey(name);
+    }
+
+    public boolean contains(String name, String value) {
+        return delegate.containsEntry(name, value);
     }
 
     /**
      * Per https://tools.ietf.org/html/rfc7230#page-19, query params are to be treated as case sensitive.
-     * However, as an utility, this exists to allow us to do a case insensitive match on demand.
+     * However, as a utility, this exists to allow us to do a case insensitive match on demand.
      */
     public boolean containsIgnoreCase(String name) {
-        return delegate.containsKey(name) || delegate.containsKey(name.toLowerCase(Locale.ROOT));
-    }
-
-    public boolean contains(String name, String value)
-    {
-        return delegate.containsEntry(name, value);
+        if (delegate.containsKey(name)) {
+            return true;
+        }
+        for (String key : delegate.keySet()) {
+            if (key.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * Replace any/all entries with this key, with this single entry.
      */
-    public void set(String name, String value)
-    {
+    public void set(String name, String value) {
         delegate.removeAll(name);
-        delegate.put(name,  value);
-    }
-
-    public void add(String name, String value)
-    {
         delegate.put(name, value);
     }
 
-    public void removeAll(String name)
-    {
+    public void add(String name, String value) {
+        delegate.put(name, value);
+    }
+
+    public void removeAll(String name) {
         delegate.removeAll(name);
     }
 
-    public void clear()
-    {
+    public void clear() {
         delegate.clear();
     }
 
-    public Collection<Map.Entry<String, String>> entries()
-    {
+    public Collection<Map.Entry<String, String>> entries() {
         return delegate.entries();
     }
 
@@ -176,37 +180,28 @@ public class HttpQueryParams implements Cloneable
         return delegate.keySet();
     }
 
-    public String toEncodedString()
-    {
+    public String toEncodedString() {
         StringBuilder sb = new StringBuilder();
-        try {
-            for (Map.Entry<String, String> entry : entries()) {
-                sb.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
-                if (!Strings.isNullOrEmpty(entry.getValue())) {
-                    sb.append('=');
-                    sb.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
-                }
-                else if (isTrailingEquals(entry.getKey())) {
-                    sb.append('=');
-                }
-                sb.append('&');
+        for (Map.Entry<String, String> entry : entries()) {
+            sb.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8));
+            if (!Strings.isNullOrEmpty(entry.getValue())) {
+                sb.append('=');
+                sb.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
+            } else if (isTrailingEquals(entry.getKey())) {
+                sb.append('=');
             }
-
-            // Remove trailing '&'.
-            if (sb.length() > 0 && '&' == sb.charAt(sb.length() - 1)) {
-                sb.deleteCharAt(sb.length() - 1);
-            }
+            sb.append('&');
         }
-        catch (UnsupportedEncodingException e) {
-            // Won't happen.
-            e.printStackTrace();
+
+        // Remove trailing '&'.
+        if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == '&') {
+            sb.deleteCharAt(sb.length() - 1);
         }
         return sb.toString();
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> entry : entries()) {
             sb.append(entry.getKey());
@@ -218,27 +213,24 @@ public class HttpQueryParams implements Cloneable
         }
 
         // Remove trailing '&'.
-        if (sb.length() > 0 && '&' == sb.charAt(sb.length() - 1)) {
+        if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == '&') {
             sb.deleteCharAt(sb.length() - 1);
         }
         return sb.toString();
     }
 
     @Override
-    protected HttpQueryParams clone()
-    {
+    protected HttpQueryParams clone() {
         HttpQueryParams copy = new HttpQueryParams();
         copy.delegate.putAll(this.delegate);
         return copy;
     }
 
-    public HttpQueryParams immutableCopy()
-    {
+    public HttpQueryParams immutableCopy() {
         return new HttpQueryParams(ImmutableListMultimap.copyOf(delegate));
     }
 
-    public boolean isImmutable()
-    {
+    public boolean isImmutable() {
         return immutable;
     }
 
@@ -251,20 +243,19 @@ public class HttpQueryParams implements Cloneable
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return delegate.hashCode();
     }
 
     @Override
-    public boolean equals(Object obj)
-    {
-        if (obj == null)
+    public boolean equals(Object obj) {
+        if (obj == null) {
             return false;
-        if (! (obj instanceof HttpQueryParams))
+        }
+        if (!(obj instanceof HttpQueryParams hqp2)) {
             return false;
+        }
 
-        HttpQueryParams hqp2 = (HttpQueryParams) obj;
         return Iterables.elementsEqual(delegate.entries(), hqp2.delegate.entries());
     }
 }

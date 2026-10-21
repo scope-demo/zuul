@@ -16,10 +16,12 @@
 
 package com.netflix.zuul.netty.connectionpool;
 
+import com.netflix.netty.common.HttpLifecycleChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.util.AttributeKey;
 import java.time.Duration;
@@ -35,18 +37,25 @@ import org.slf4j.LoggerFactory;
 public final class ClientTimeoutHandler {
     private static final Logger LOG = LoggerFactory.getLogger(ClientTimeoutHandler.class);
 
-    public static final AttributeKey<Duration> ORIGIN_RESPONSE_READ_TIMEOUT = AttributeKey.newInstance("originResponseReadTimeout");
+    public static final AttributeKey<Duration> ORIGIN_RESPONSE_READ_TIMEOUT =
+            AttributeKey.newInstance("originResponseReadTimeout");
 
     public static final class InboundHandler extends ChannelInboundHandlerAdapter {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             try {
                 if (msg instanceof LastHttpContent) {
-                    LOG.debug("[{}] Removing read timeout handler", ctx.channel().id());
-                    PooledConnection.getFromChannel(ctx.channel()).removeReadTimeoutHandler();
+                    HttpResponse resp = ctx.channel()
+                            .attr(HttpLifecycleChannelHandler.ATTR_HTTP_RESP)
+                            .get();
+                    if (!HttpLifecycleChannelHandler.isInterimResponse(resp)) {
+                        LOG.debug(
+                                "[{}] Removing read timeout handler",
+                                ctx.channel().id());
+                        PooledConnection.getFromChannel(ctx.channel()).removeReadTimeoutHandler();
+                    }
                 }
-            }
-            finally {
+            } finally {
                 super.channelRead(ctx, msg);
             }
         }
@@ -56,15 +65,24 @@ public final class ClientTimeoutHandler {
         @Override
         public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
             try {
-                final Duration timeout = ctx.channel().attr(ORIGIN_RESPONSE_READ_TIMEOUT).get();
-                if (timeout != null && msg instanceof LastHttpContent) {
+                if (!(msg instanceof LastHttpContent)) {
+                    return;
+                }
+
+                Duration timeout =
+                        ctx.channel().attr(ORIGIN_RESPONSE_READ_TIMEOUT).get();
+                if (timeout != null) {
                     promise.addListener(e -> {
-                        LOG.debug("[{}] Adding read timeout handler: {}", ctx.channel().id(), timeout.toMillis());
-                        PooledConnection.getFromChannel(ctx.channel()).startReadTimeoutHandler(timeout);
+                        if (e.isSuccess()) {
+                            LOG.debug(
+                                    "[{}] Adding read timeout handler: {}",
+                                    ctx.channel().id(),
+                                    timeout.toMillis());
+                            PooledConnection.getFromChannel(ctx.channel()).startReadTimeoutHandler(timeout);
+                        }
                     });
                 }
-            }
-            finally {
+            } finally {
                 super.write(ctx, msg, promise);
             }
         }

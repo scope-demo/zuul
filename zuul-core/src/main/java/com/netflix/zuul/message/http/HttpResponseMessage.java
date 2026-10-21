@@ -16,15 +16,14 @@
 
 package com.netflix.zuul.message.http;
 
-import io.netty.handler.codec.http.Cookie;
+import io.netty.handler.codec.http.cookie.Cookie;
 
 /**
  * User: Mike Smith
  * Date: 7/16/15
  * Time: 12:45 AM
  */
-public interface HttpResponseMessage extends HttpResponseInfo
-{
+public interface HttpResponseMessage extends HttpResponseInfo {
     void setStatus(int status);
 
     @Override

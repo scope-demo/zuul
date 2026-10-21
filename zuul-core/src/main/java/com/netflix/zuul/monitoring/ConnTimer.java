@@ -49,8 +49,9 @@ public final class ConnTimer {
 
     private final Registry registry;
     private final Channel chan;
-    // TODO(carl-mastrangelo): make this changable.
+    // TODO(carl-mastrangelo): make this changeable.
     private final Id metricBase;
+
     @Nullable
     private final Id preciseMetricBase;
 
@@ -114,8 +115,7 @@ public final class ConnTimer {
                 // it.
                 return;
             }
-            registry.timer(buildId(metricBase, from, event, dimTags))
-                    .record(durationNanos, TimeUnit.NANOSECONDS);
+            registry.timer(buildId(metricBase, from, event, dimTags)).record(durationNanos, TimeUnit.NANOSECONDS);
             if (preciseMetricBase != null) {
                 PercentileTimer.builder(registry)
                         .withId(buildId(preciseMetricBase, from, event, dimTags))
@@ -128,6 +128,8 @@ public final class ConnTimer {
     }
 
     private Id buildId(Id base, String from, String to, Map<String, String> tags) {
-        return registry.createId(metricBase.name() + '.' + from + '-' + to).withTags(base.tags()).withTags(tags);
+        return registry.createId(metricBase.name() + '.' + from + '-' + to)
+                .withTags(base.tags())
+                .withTags(tags);
     }
 }

@@ -16,15 +16,13 @@
 
 package com.netflix.zuul.netty.server;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.config.DynamicBooleanProperty;
 import com.netflix.netty.common.CategorizedThreadFactory;
-import com.netflix.netty.common.LeastConnsEventLoopChooserFactory;
 import com.netflix.netty.common.metrics.EventLoopGroupMetrics;
 import com.netflix.netty.common.status.ServerStatusManager;
+import com.netflix.spectator.api.Counter;
 import com.netflix.spectator.api.Registry;
 import com.netflix.spectator.api.Spectator;
 import com.netflix.spectator.api.patterns.PolledMeter;
@@ -41,40 +39,45 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.DefaultSelectStrategyFactory;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.IoHandlerFactory;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.ServerChannel;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollChannelOption;
-import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollIoHandler;
 import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.kqueue.KQueue;
-import io.netty.channel.kqueue.KQueueEventLoopGroup;
+import io.netty.channel.kqueue.KQueueIoHandler;
 import io.netty.channel.kqueue.KQueueServerSocketChannel;
 import io.netty.channel.kqueue.KQueueSocketChannel;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.channel.uring.IoUring;
+import io.netty.channel.uring.IoUringIoHandler;
+import io.netty.channel.uring.IoUringServerSocketChannel;
+import io.netty.channel.uring.IoUringSocketChannel;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.DefaultEventExecutorChooserFactory;
 import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.concurrent.EventExecutorChooserFactory;
 import io.netty.util.concurrent.ThreadPerTaskExecutor;
 import java.net.InetSocketAddress;
-import java.nio.channels.spi.SelectorProvider;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,8 +89,7 @@ import org.slf4j.LoggerFactory;
  * Date: 11/8/14
  * Time: 8:39 PM
  */
-public class Server
-{
+public class Server {
     /**
      * This field is effectively a noop, as Epoll is enabled automatically if available.   This can be disabled by
      * using the {@link #FORCE_NIO} property.
@@ -103,17 +105,17 @@ public class Server
     private static final DynamicBooleanProperty FORCE_NIO =
             new DynamicBooleanProperty("zuul.server.netty.socket.force_nio", false);
 
-    private static final Logger LOG = LoggerFactory.getLogger(Server.class);
+    private static final DynamicBooleanProperty FORCE_IO_URING =
+            new DynamicBooleanProperty("zuul.server.netty.socket.force_io_uring", false);
 
-    private static final DynamicBooleanProperty USE_LEASTCONNS_FOR_EVENTLOOPS =
-            new DynamicBooleanProperty("zuul.server.eventloops.use_leastconns", false);
+    private static final Logger LOG = LoggerFactory.getLogger(Server.class);
 
     private static final DynamicBooleanProperty MANUAL_DISCOVERY_STATUS =
             new DynamicBooleanProperty("zuul.server.netty.manual.discovery.status", true);
 
-    private final EventLoopGroupMetrics eventLoopGroupMetrics;
+    @Nullable
+    private final Thread jvmShutdownHook;
 
-    private final Thread jvmShutdownHook = new Thread(this::stop, "Zuul-JVM-shutdown-hook");
     private final Registry registry;
     private ServerGroup serverGroup;
     private final ClientConnectionsShutdown clientConnectionsShutdown;
@@ -123,7 +125,9 @@ public class Server
      * Unlike the above, the socket addresses in this map are the *bound* addresses, rather than the requested ones.
      */
     private final Map<NamedSocketAddress, Channel> addressesToChannels = new LinkedHashMap<>();
+
     private final EventLoopConfig eventLoopConfig;
+    private final Map<Integer, Counter> acceptCountersByPort = new ConcurrentHashMap<>();
 
     /**
      * This is a hack to expose the channel type to the origin channel.  It is NOT API stable and should not be
@@ -137,11 +141,18 @@ public class Server
      * EventLoopConfig)}
      * instead.
      */
+    @SuppressWarnings("rawtypes")
     @Deprecated
-    public Server(Map<Integer, ChannelInitializer> portsToChannelInitializers, ServerStatusManager serverStatusManager,
-                  ClientConnectionsShutdown clientConnectionsShutdown, EventLoopGroupMetrics eventLoopGroupMetrics)
-    {
-        this(portsToChannelInitializers, serverStatusManager, clientConnectionsShutdown, eventLoopGroupMetrics,
+    public Server(
+            Map<Integer, ChannelInitializer> portsToChannelInitializers,
+            ServerStatusManager serverStatusManager,
+            ClientConnectionsShutdown clientConnectionsShutdown,
+            EventLoopGroupMetrics eventLoopGroupMetrics) {
+        this(
+                portsToChannelInitializers,
+                serverStatusManager,
+                clientConnectionsShutdown,
+                eventLoopGroupMetrics,
                 new DefaultEventLoopConfig());
     }
 
@@ -150,75 +161,96 @@ public class Server
      * EventLoopConfig)}
      * instead.
      */
-    @SuppressWarnings("unchecked") // Channel init map has the wrong generics and we can't fix without api breakage.
+    @SuppressWarnings({"unchecked", "rawtypes"
+    }) // Channel init map has the wrong generics and we can't fix without api breakage.
     @Deprecated
-    public Server(Map<Integer, ChannelInitializer> portsToChannelInitializers, ServerStatusManager serverStatusManager,
-                  ClientConnectionsShutdown clientConnectionsShutdown, EventLoopGroupMetrics eventLoopGroupMetrics,
-                  EventLoopConfig eventLoopConfig) {
-        this(Spectator.globalRegistry(), serverStatusManager,
+    public Server(
+            Map<Integer, ChannelInitializer> portsToChannelInitializers,
+            ServerStatusManager serverStatusManager,
+            ClientConnectionsShutdown clientConnectionsShutdown,
+            EventLoopGroupMetrics eventLoopGroupMetrics,
+            EventLoopConfig eventLoopConfig) {
+        this(
+                Spectator.globalRegistry(),
+                serverStatusManager,
                 convertPortMap((Map<Integer, ChannelInitializer<?>>) (Map) portsToChannelInitializers),
-                clientConnectionsShutdown, eventLoopGroupMetrics, eventLoopConfig);
+                clientConnectionsShutdown,
+                eventLoopGroupMetrics,
+                eventLoopConfig);
     }
 
-    public Server(Registry registry, ServerStatusManager serverStatusManager,
-           Map<NamedSocketAddress, ? extends ChannelInitializer<?>> addressesToInitializers,
-           ClientConnectionsShutdown clientConnectionsShutdown, EventLoopGroupMetrics eventLoopGroupMetrics,
-           EventLoopConfig eventLoopConfig) {
-        this.registry = Objects.requireNonNull(registry);
+    public Server(
+            @NonNull Registry registry,
+            @NonNull ServerStatusManager serverStatusManager,
+            Map<NamedSocketAddress, ? extends ChannelInitializer<?>> addressesToInitializers,
+            @NonNull ClientConnectionsShutdown clientConnectionsShutdown,
+            EventLoopGroupMetrics eventLoopGroupMetrics,
+            @NonNull EventLoopConfig eventLoopConfig) {
+        this.registry = registry;
         this.addressesToInitializers = Collections.unmodifiableMap(new LinkedHashMap<>(addressesToInitializers));
-        this.serverStatusManager = checkNotNull(serverStatusManager, "serverStatusManager");
-        this.clientConnectionsShutdown = checkNotNull(clientConnectionsShutdown, "clientConnectionsShutdown");
-        this.eventLoopConfig = checkNotNull(eventLoopConfig, "eventLoopConfig");
-        this.eventLoopGroupMetrics = checkNotNull(eventLoopGroupMetrics, "eventLoopGroupMetrics");
+        this.serverStatusManager = serverStatusManager;
+        this.clientConnectionsShutdown = clientConnectionsShutdown;
+        this.eventLoopConfig = eventLoopConfig;
+        this.jvmShutdownHook = new Thread(this::stop, "Zuul-JVM-shutdown-hook");
+    }
+
+    /**
+     * Pass a null jvmShutdownHook if Server lifecycle is being handled by an external shutdown hook
+     */
+    public Server(
+            @NonNull Registry registry,
+            @NonNull ServerStatusManager serverStatusManager,
+            Map<NamedSocketAddress, ? extends ChannelInitializer<?>> addressesToInitializers,
+            @NonNull ClientConnectionsShutdown clientConnectionsShutdown,
+            EventLoopGroupMetrics eventLoopGroupMetrics,
+            @NonNull EventLoopConfig eventLoopConfig,
+            @Nullable Thread jvmShutdownHook) {
+        this.registry = registry;
+        this.addressesToInitializers = Collections.unmodifiableMap(new LinkedHashMap<>(addressesToInitializers));
+        this.serverStatusManager = serverStatusManager;
+        this.clientConnectionsShutdown = clientConnectionsShutdown;
+        this.eventLoopConfig = eventLoopConfig;
+        this.jvmShutdownHook = jvmShutdownHook;
     }
 
     public void stop() {
         LOG.info("Shutting down Zuul.");
         serverGroup.stop();
-
-        // remove the shutdown hook that was added when the proxy was started, since it has now been stopped
-        try {
-            Runtime.getRuntime().removeShutdownHook(jvmShutdownHook);
-        } catch (IllegalStateException e) {
-            // This can happen if the VM is already shutting down
-            LOG.debug("Failed to remove shutdown hook", e);
-        }
         LOG.info("Completed zuul shutdown.");
     }
 
-    public void start()
-    {
-        serverGroup = new ServerGroup(
-                "Salamander", eventLoopConfig.acceptorCount(), eventLoopConfig.eventLoopCount(), eventLoopGroupMetrics);
-        serverGroup.initializeTransport();
-        try {
-            List<ChannelFuture> allBindFutures = new ArrayList<>(addressesToInitializers.size());
-
-            // Setup each of the channel initializers on requested ports.
-            for (Map.Entry<NamedSocketAddress, ? extends ChannelInitializer<?>> entry
-                    : addressesToInitializers.entrySet()) {
-                NamedSocketAddress requestedNamedAddr = entry.getKey();
-                ChannelFuture nettyServerFuture = setupServerBootstrap(requestedNamedAddr, entry.getValue());
-                Channel chan = nettyServerFuture.channel();
-                addressesToChannels.put(requestedNamedAddr.withNewSocket(chan.localAddress()), chan);
-                allBindFutures.add(nettyServerFuture);
-            }
-
-            // All channels should share a single ByteBufAllocator instance.
-            // Add metrics to monitor that allocator's memory usage.
-            if (!allBindFutures.isEmpty()) {
-                ByteBufAllocator alloc = allBindFutures.get(0).channel().alloc();
-                if (alloc instanceof ByteBufAllocatorMetricProvider) {
-                    ByteBufAllocatorMetric metrics = ((ByteBufAllocatorMetricProvider) alloc).metric();
-                    PolledMeter.using(registry).withId(registry.createId("zuul.nettybuffermem.live", "type", "heap"))
-                            .monitorValue(metrics, ByteBufAllocatorMetric::usedHeapMemory);
-                    PolledMeter.using(registry).withId(registry.createId("zuul.nettybuffermem.live", "type", "direct"))
-                            .monitorValue(metrics, ByteBufAllocatorMetric::usedDirectMemory);
-                }
-            }
+    public void start() {
+        if (jvmShutdownHook != null) {
+            Runtime.getRuntime().addShutdownHook(jvmShutdownHook);
         }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+
+        serverGroup = new ServerGroup("Salamander", eventLoopConfig.acceptorCount(), eventLoopConfig.eventLoopCount());
+        serverGroup.initializeTransport();
+        List<ChannelFuture> allBindFutures = new ArrayList<>(addressesToInitializers.size());
+
+        // Setup each of the channel initializers on requested ports.
+        for (Map.Entry<NamedSocketAddress, ? extends ChannelInitializer<?>> entry :
+                addressesToInitializers.entrySet()) {
+            NamedSocketAddress requestedNamedAddr = entry.getKey();
+            ChannelFuture nettyServerFuture = setupServerBootstrap(requestedNamedAddr, entry.getValue());
+            Channel chan = nettyServerFuture.channel();
+            addressesToChannels.put(requestedNamedAddr.withNewSocket(chan.localAddress()), chan);
+            allBindFutures.add(nettyServerFuture);
+        }
+
+        // All channels should share a single ByteBufAllocator instance.
+        // Add metrics to monitor that allocator's memory usage.
+        if (!allBindFutures.isEmpty()) {
+            ByteBufAllocator alloc = allBindFutures.get(0).channel().alloc();
+            if (alloc instanceof ByteBufAllocatorMetricProvider byteBufAllocatorMetricProvider) {
+                ByteBufAllocatorMetric metrics = byteBufAllocatorMetricProvider.metric();
+                PolledMeter.using(registry)
+                        .withId(registry.createId("zuul.nettybuffermem.live", "type", "heap"))
+                        .monitorValue(metrics, ByteBufAllocatorMetric::usedHeapMemory);
+                PolledMeter.using(registry)
+                        .withId(registry.createId("zuul.nettybuffermem.live", "type", "direct"))
+                        .monitorValue(metrics, ByteBufAllocatorMetric::usedDirectMemory);
+            }
         }
     }
 
@@ -236,51 +268,42 @@ public class Server
     }
 
     @VisibleForTesting
-    public void waitForEachEventLoop() throws InterruptedException, ExecutionException
-    {
-        for (EventExecutor exec : serverGroup.clientToProxyWorkerPool)
-        {
+    public void waitForEachEventLoop() throws InterruptedException, ExecutionException {
+        for (EventExecutor exec : serverGroup.clientToProxyWorkerPool) {
             exec.submit(() -> {
-                // Do nothing.
-            }).get();
+                        // Do nothing.
+                    })
+                    .get();
         }
     }
 
-    @VisibleForTesting
-    public void gracefullyShutdownConnections()
-    {
-        clientConnectionsShutdown.gracefullyShutdownClientChannels();
+    Thread getJvmShutdownHook() {
+        return jvmShutdownHook;
     }
 
     private ChannelFuture setupServerBootstrap(
-            NamedSocketAddress listenAddress, ChannelInitializer<?> channelInitializer) throws InterruptedException {
+            NamedSocketAddress listenAddress, ChannelInitializer<?> channelInitializer) {
         ServerBootstrap serverBootstrap =
                 new ServerBootstrap().group(serverGroup.clientToProxyBossPool, serverGroup.clientToProxyWorkerPool);
 
-        // Choose socket options.
-        Map<ChannelOption<?>, Object> channelOptions = new HashMap<>();
-        channelOptions.put(ChannelOption.SO_BACKLOG, 128);
-        channelOptions.put(ChannelOption.SO_LINGER, -1);
-        channelOptions.put(ChannelOption.TCP_NODELAY, true);
-        channelOptions.put(ChannelOption.SO_KEEPALIVE, true);
-
-        LOG.info("Proxy listening with " + serverGroup.channelType);
+        LOG.info("Proxy listening with {}", serverGroup.channelType);
         serverBootstrap.channel(serverGroup.channelType);
 
-        // Apply socket options.
-        for (Map.Entry<ChannelOption<?>, ?> optionEntry : channelOptions.entrySet()) {
-            serverBootstrap = serverBootstrap.option((ChannelOption) optionEntry.getKey(), optionEntry.getValue());
-        }
+        serverBootstrap.option(ChannelOption.SO_BACKLOG, eventLoopConfig.getBacklogSize());
+        serverBootstrap.childOption(ChannelOption.SO_LINGER, -1);
+        serverBootstrap.childOption(ChannelOption.TCP_NODELAY, true);
+        serverBootstrap.childOption(ChannelOption.SO_KEEPALIVE, true);
+
         // Apply transport specific socket options.
         for (Map.Entry<ChannelOption<?>, ?> optionEntry : serverGroup.transportChannelOptions.entrySet()) {
-            serverBootstrap = serverBootstrap.option((ChannelOption) optionEntry.getKey(), optionEntry.getValue());
+            applyServerOption(serverBootstrap, optionEntry.getKey(), optionEntry.getValue());
         }
 
         serverBootstrap.handler(new NewConnHandler());
         serverBootstrap.childHandler(channelInitializer);
         serverBootstrap.validate();
 
-        LOG.info("Binding to : " + listenAddress);
+        LOG.info("Binding to : {}", listenAddress);
 
         if (MANUAL_DISCOVERY_STATUS.get()) {
             // Flag status as UP just before binding to the port.
@@ -305,18 +328,15 @@ public class Server
      * @param clientToProxyBossPool - acceptor pool
      * @param clientToProxyWorkerPool - worker pool
      */
-    public void postEventLoopCreationHook(EventLoopGroup clientToProxyBossPool, EventLoopGroup clientToProxyWorkerPool) {
+    public void postEventLoopCreationHook(
+            EventLoopGroup clientToProxyBossPool, EventLoopGroup clientToProxyWorkerPool) {}
 
-    }
-
-    private final class ServerGroup
-    {
+    private final class ServerGroup {
         /** A name for this ServerGroup to use in naming threads. */
         private final String name;
+
         private final int acceptorThreads;
         private final int workerThreads;
-        private final EventLoopGroupMetrics eventLoopGroupMetrics;
-        private final Thread jvmShutdownHook = new Thread(this::stop, "Zuul-ServerGroup-JVM-shutdown-hook");
 
         private EventLoopGroup clientToProxyBossPool;
         private EventLoopGroup clientToProxyWorkerPool;
@@ -325,83 +345,52 @@ public class Server
 
         private volatile boolean stopped = false;
 
-        private ServerGroup(String name, int acceptorThreads, int workerThreads, EventLoopGroupMetrics eventLoopGroupMetrics) {
+        private ServerGroup(String name, int acceptorThreads, int workerThreads) {
             this.name = name;
             this.acceptorThreads = acceptorThreads;
             this.workerThreads = workerThreads;
-            this.eventLoopGroupMetrics = eventLoopGroupMetrics;
 
-            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                public void uncaughtException(final Thread t, final Throwable e) {
-                    LOG.error("Uncaught throwable", e);
-                }
-            });
-
-            Runtime.getRuntime().addShutdownHook(jvmShutdownHook);
+            Thread.setDefaultUncaughtExceptionHandler((t, e) -> LOG.error("Uncaught throwable", e));
         }
 
-        private void initializeTransport()
-        {
-            // TODO - try our own impl of ChooserFactory that load-balances across the eventloops using leastconns algo?
-            EventExecutorChooserFactory chooserFactory;
-            if (USE_LEASTCONNS_FOR_EVENTLOOPS.get()) {
-                chooserFactory = new LeastConnsEventLoopChooserFactory(eventLoopGroupMetrics);
-            } else {
-                chooserFactory = DefaultEventExecutorChooserFactory.INSTANCE;
-            }
-
-            ThreadFactory workerThreadFactory = new CategorizedThreadFactory(name + "-ClientToZuulWorker");
-            Executor workerExecutor = new ThreadPerTaskExecutor(workerThreadFactory);
-
+        private void initializeTransport() {
             Map<ChannelOption<?>, Object> extraOptions = new HashMap<>();
             boolean useNio = FORCE_NIO.get();
-            if (!useNio && epollIsAvailable()) {
+            boolean useIoUring = FORCE_IO_URING.get();
+
+            final IoHandlerFactory handlerFactory;
+            if (useIoUring && ioUringIsAvailable()) {
+                channelType = IoUringServerSocketChannel.class;
+                defaultOutboundChannelType.set(IoUringSocketChannel.class);
+                handlerFactory = IoUringIoHandler.newFactory();
+            } else if (!useNio && epollIsAvailable()) {
                 channelType = EpollServerSocketChannel.class;
                 defaultOutboundChannelType.set(EpollSocketChannel.class);
+                handlerFactory = EpollIoHandler.newFactory();
                 extraOptions.put(EpollChannelOption.TCP_DEFER_ACCEPT, -1);
-                clientToProxyBossPool = new EpollEventLoopGroup(
-                        acceptorThreads,
-                        new CategorizedThreadFactory(name + "-ClientToZuulAcceptor"));
-                clientToProxyWorkerPool = new EpollEventLoopGroup(
-                        workerThreads,
-                        workerExecutor,
-                        chooserFactory,
-                        DefaultSelectStrategyFactory.INSTANCE);
             } else if (!useNio && kqueueIsAvailable()) {
                 channelType = KQueueServerSocketChannel.class;
                 defaultOutboundChannelType.set(KQueueSocketChannel.class);
-                clientToProxyBossPool = new KQueueEventLoopGroup(
-                        acceptorThreads,
-                        new CategorizedThreadFactory(name + "-ClientToZuulAcceptor"));
-                clientToProxyWorkerPool = new KQueueEventLoopGroup(
-                        workerThreads,
-                        workerExecutor,
-                        chooserFactory,
-                        DefaultSelectStrategyFactory.INSTANCE);
+                handlerFactory = KQueueIoHandler.newFactory();
             } else {
                 channelType = NioServerSocketChannel.class;
                 defaultOutboundChannelType.set(NioSocketChannel.class);
-                NioEventLoopGroup elg = new NioEventLoopGroup(
-                        workerThreads,
-                        workerExecutor,
-                        chooserFactory,
-                        SelectorProvider.provider(),
-                        DefaultSelectStrategyFactory.INSTANCE
-                );
-                elg.setIoRatio(90);
-                clientToProxyBossPool = new NioEventLoopGroup(
-                        acceptorThreads,
-                        new CategorizedThreadFactory(name + "-ClientToZuulAcceptor"));
-                clientToProxyWorkerPool = elg;
+                handlerFactory = NioIoHandler.newFactory();
             }
 
-            transportChannelOptions = Collections.unmodifiableMap(extraOptions);
+            clientToProxyBossPool = new MultiThreadIoEventLoopGroup(
+                    acceptorThreads, new CategorizedThreadFactory(name + "-ClientToZuulAcceptor"), handlerFactory);
 
+            ThreadFactory workerThreadFactory = new CategorizedThreadFactory(name + "-ClientToZuulWorker");
+            Executor workerExecutor = new ThreadPerTaskExecutor(workerThreadFactory);
+            clientToProxyWorkerPool = new MultiThreadIoEventLoopGroup(
+                    workerThreads, workerExecutor, DefaultEventExecutorChooserFactory.INSTANCE, handlerFactory);
+
+            transportChannelOptions = Collections.unmodifiableMap(extraOptions);
             postEventLoopCreationHook(clientToProxyBossPool, clientToProxyWorkerPool);
         }
 
-        synchronized private void stop()
-        {
+        private synchronized void stop() {
             LOG.info("Shutting down");
             if (stopped) {
                 LOG.info("Already stopped");
@@ -418,7 +407,7 @@ public class Server
             // NOTE: ClientConnectionsShutdown can also be configured to gracefully close connections when the
             // discovery status changes to DOWN. So if it has been configured that way, then this will be an additional
             // call to gracefullyShutdownClientChannels(), which will be a noop.
-            clientConnectionsShutdown.gracefullyShutdownClientChannels();
+            clientConnectionsShutdown.gracefullyShutdownClientChannels().syncUninterruptibly();
 
             LOG.info("Shutting down event loops");
             List<EventLoopGroup> allEventLoopGroups = new ArrayList<>();
@@ -435,19 +424,13 @@ public class Server
                     LOG.warn("Interrupted while shutting down event loop");
                 }
             }
-            try {
-                Runtime.getRuntime().removeShutdownHook(jvmShutdownHook);
-            } catch (IllegalStateException e) {
-                // This can happen if the VM is already shutting down
-                LOG.debug("Failed to remove shutdown hook", e);
-            }
 
             stopped = true;
             LOG.info("Done shutting down");
         }
     }
 
-    /**
+    /*
      * Keys should be a short string usable in metrics.
      */
     public static final AttributeKey<Attrs> CONN_DIMENSIONS = AttributeKey.newInstance("zuulconndimensions");
@@ -457,7 +440,16 @@ public class Server
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             Long now = System.nanoTime();
-            final Channel child = (Channel) msg;
+            Channel child = (Channel) msg;
+
+            int localPort = child.localAddress() instanceof InetSocketAddress localAddr ? localAddr.getPort() : -1;
+            acceptCountersByPort
+                    .computeIfAbsent(
+                            localPort,
+                            p -> registry.counter(
+                                    registry.createId("zuul.conn.acceptor.accepts", "port", String.valueOf(p))))
+                    .increment();
+
             child.attr(CONN_DIMENSIONS).set(Attrs.newInstance());
             ConnTimer timer = ConnTimer.install(child, registry, registry.createId("zuul.conn.client.timing"));
             timer.record(now, "ACCEPT");
@@ -479,6 +471,11 @@ public class Server
         return Collections.unmodifiableMap(addrsToInitializers);
     }
 
+    @SuppressWarnings("unchecked")
+    private static <T> void applyServerOption(ServerBootstrap bootstrap, ChannelOption<T> key, Object value) {
+        bootstrap.option(key, (T) value);
+    }
+
     private static boolean epollIsAvailable() {
         boolean available;
         try {
@@ -492,6 +489,23 @@ public class Server
         }
         if (!available) {
             LOG.debug("Epoll is unavailable, skipping", Epoll.unavailabilityCause());
+        }
+        return available;
+    }
+
+    private static boolean ioUringIsAvailable() {
+        boolean available;
+        try {
+            available = IoUring.isAvailable();
+        } catch (NoClassDefFoundError e) {
+            LOG.debug("io_uring is unavailable, skipping", e);
+            return false;
+        } catch (RuntimeException | Error e) {
+            LOG.warn("io_uring is unavailable, skipping", e);
+            return false;
+        }
+        if (!available) {
+            LOG.debug("io_uring is unavailable, skipping", IoUring.unavailabilityCause());
         }
         return available;
     }

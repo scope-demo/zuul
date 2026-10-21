@@ -17,7 +17,11 @@ package com.netflix.zuul.sample.push;
 
 import com.netflix.netty.common.channel.config.ChannelConfig;
 import com.netflix.zuul.netty.server.ZuulDependencyKeys;
-import com.netflix.zuul.netty.server.push.*;
+import com.netflix.zuul.netty.server.push.PushAuthHandler;
+import com.netflix.zuul.netty.server.push.PushChannelInitializer;
+import com.netflix.zuul.netty.server.push.PushConnectionRegistry;
+import com.netflix.zuul.netty.server.push.PushProtocol;
+import com.netflix.zuul.netty.server.push.PushRegistrationHandler;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
@@ -32,6 +36,8 @@ public class SampleWebSocketPushChannelInitializer extends PushChannelInitialize
     private final PushConnectionRegistry pushConnectionRegistry;
     private final PushAuthHandler pushAuthHandler;
 
+    private static final int MAX_CONTENT_LENGTH = 65536; // 64KB
+
     public SampleWebSocketPushChannelInitializer(
             String metricId, ChannelConfig channelConfig, ChannelConfig channelDependencies, ChannelGroup channels) {
         super(metricId, channelConfig, channelDependencies, channels);
@@ -40,9 +46,9 @@ public class SampleWebSocketPushChannelInitializer extends PushChannelInitialize
     }
 
     @Override
-    protected void addPushHandlers(final ChannelPipeline pipeline) {
+    protected void addPushHandlers(ChannelPipeline pipeline) {
         pipeline.addLast(PushAuthHandler.NAME, pushAuthHandler);
-        pipeline.addLast(new WebSocketServerCompressionHandler());
+        pipeline.addLast(new WebSocketServerCompressionHandler(MAX_CONTENT_LENGTH));
         pipeline.addLast(new WebSocketServerProtocolHandler(PushProtocol.WEBSOCKET.getPath(), null, true));
         pipeline.addLast(new PushRegistrationHandler(pushConnectionRegistry, PushProtocol.WEBSOCKET));
         pipeline.addLast(new SampleWebSocketPushClientProtocolHandler());

@@ -26,45 +26,35 @@ import io.netty.util.AttributeKey;
  * Date: 7/10/17
  * Time: 4:29 PM
  */
-public class HttpChannelFlags
-{
+public class HttpChannelFlags {
     public static final Flag IN_BROWNOUT = new Flag("_brownout");
 
-    public static final Flag CLOSING = new Flag("_connection_closing");
-
-    public static class Flag
-    {
+    public static class Flag {
         private final AttributeKey<Boolean> attributeKey;
 
-        public Flag(String name)
-        {
+        public Flag(String name) {
             attributeKey = AttributeKey.newInstance(name);
         }
 
-        public void set(Channel ch)
-        {
-            ch.attr(attributeKey).set(Boolean.TRUE);
+        public void set(Channel ch) {
+            ch.attr(attributeKey).set(true);
         }
 
-        public void remove(Channel ch)
-        {
-            ch.attr(attributeKey).set(null);
-        }
-
-        public void set(ChannelHandlerContext ctx)
-        {
+        public void set(ChannelHandlerContext ctx) {
             set(ctx.channel());
         }
 
-        public boolean get(Channel ch)
-        {
-            Attribute<Boolean> attr = ch.attr(attributeKey);
-            Boolean value = attr.get();
-            return (value == null) ? false : value.booleanValue();
+        public void remove(Channel ch) {
+            ch.attr(attributeKey).set(null);
         }
 
-        public boolean get(ChannelHandlerContext ctx)
-        {
+        public boolean get(Channel ch) {
+            Attribute<Boolean> attr = ch.attr(attributeKey);
+            Boolean value = attr.get();
+            return (value == null) ? false : value;
+        }
+
+        public boolean get(ChannelHandlerContext ctx) {
             return get(ctx.channel());
         }
     }

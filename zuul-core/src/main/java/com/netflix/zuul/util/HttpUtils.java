@@ -15,6 +15,7 @@
  */
 package com.netflix.zuul.util;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.netflix.zuul.message.Headers;
 import com.netflix.zuul.message.ZuulMessage;
@@ -22,8 +23,14 @@ import com.netflix.zuul.message.http.HttpHeaderNames;
 import com.netflix.zuul.message.http.HttpRequestInfo;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http2.Http2StreamChannel;
-import javax.annotation.Nullable;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.Objects;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,8 +39,8 @@ import org.slf4j.LoggerFactory;
  * Date: 4/28/15
  * Time: 11:05 PM
  */
-public class HttpUtils
-{
+@NullMarked
+public class HttpUtils {
     private static final Logger LOG = LoggerFactory.getLogger(HttpUtils.class);
     private static final char[] MALICIOUS_HEADER_CHARS = {'\r', '\n'};
 
@@ -46,9 +53,9 @@ public class HttpUtils
      * @param request <code>HttpRequestMessage</code>
      * @return <code>String</code> IP address
      */
-    public static String getClientIP(HttpRequestInfo request)
-    {
-        final String xForwardedFor = request.getHeaders().getFirst(HttpHeaderNames.X_FORWARDED_FOR);
+    @Nullable
+    public static String getClientIP(HttpRequestInfo request) {
+        String xForwardedFor = request.getHeaders().getFirst(HttpHeaderNames.X_FORWARDED_FOR);
         String clientIP;
         if (xForwardedFor == null) {
             clientIP = request.getClientIp();
@@ -64,12 +71,13 @@ public class HttpUtils
      * @param xForwardedFor a <code>String</code> value
      * @return a <code>String</code> value
      */
-    public static String extractClientIpFromXForwardedFor(String xForwardedFor) {
+    @Nullable
+    public static String extractClientIpFromXForwardedFor(@Nullable String xForwardedFor) {
         if (xForwardedFor == null) {
             return null;
         }
         xForwardedFor = xForwardedFor.trim();
-        String tokenized[] = xForwardedFor.split(",");
+        String[] tokenized = xForwardedFor.split(",", -1);
         if (tokenized.length == 0) {
             return null;
         } else {
@@ -77,24 +85,22 @@ public class HttpUtils
         }
     }
 
-    /**
-     * return true if the client requested gzip content
-     *
-     * @param contentEncoding a <code>String</code> value
-     * @return true if the content-encoding param containg gzip
-     */
-    public static boolean isGzipped(String contentEncoding) {
-        return contentEncoding.contains("gzip");
+    @VisibleForTesting
+    static boolean isCompressed(String contentEncoding) {
+        return contentEncoding.contains(HttpHeaderValues.GZIP.toString())
+                || contentEncoding.contains(HttpHeaderValues.DEFLATE.toString())
+                || contentEncoding.contains(HttpHeaderValues.BR.toString())
+                || contentEncoding.contains(HttpHeaderValues.COMPRESS.toString());
     }
 
-    public static boolean isGzipped(Headers headers) {
+    public static boolean isCompressed(Headers headers) {
         String ce = headers.getFirst(HttpHeaderNames.CONTENT_ENCODING);
-        return ce != null && isGzipped(ce);
+        return ce != null && isCompressed(ce);
     }
 
     public static boolean acceptsGzip(Headers headers) {
         String ae = headers.getFirst(HttpHeaderNames.ACCEPT_ENCODING);
-        return ae != null && isGzipped(ae);
+        return ae != null && ae.contains(HttpHeaderValues.GZIP.toString());
     }
 
     /**
@@ -103,6 +109,7 @@ public class HttpUtils
      * @param input - decoded header string
      * @return - clean header string
      */
+    @Nullable
     public static String stripMaliciousHeaderChars(@Nullable String input) {
         if (input == null) {
             return null;
@@ -116,32 +123,30 @@ public class HttpUtils
         return input;
     }
 
-
-    public static boolean hasNonZeroContentLengthHeader(ZuulMessage msg)
-    {
-        final Integer contentLengthVal = getContentLengthIfPresent(msg);
-        return (contentLengthVal != null) && (contentLengthVal.intValue() > 0);
+    public static boolean hasNonZeroContentLengthHeader(ZuulMessage msg) {
+        Integer contentLengthVal = getContentLengthIfPresent(msg);
+        return (contentLengthVal != null) && (contentLengthVal > 0);
     }
 
-    public static Integer getContentLengthIfPresent(ZuulMessage msg)
-    {
-        final String contentLengthValue = msg.getHeaders().getFirst(com.netflix.zuul.message.http.HttpHeaderNames.CONTENT_LENGTH);
+    @Nullable
+    public static Integer getContentLengthIfPresent(ZuulMessage msg) {
+        String contentLengthValue =
+                msg.getHeaders().getFirst(com.netflix.zuul.message.http.HttpHeaderNames.CONTENT_LENGTH);
         if (!Strings.isNullOrEmpty(contentLengthValue)) {
             try {
                 return Integer.valueOf(contentLengthValue);
-            }
-            catch (NumberFormatException e) {
-                LOG.info("Invalid Content-Length header value on request. " +
-                        "value = {}", contentLengthValue, e);
+            } catch (NumberFormatException e) {
+                LOG.info("Invalid Content-Length header value on request. " + "value = {}", contentLengthValue, e);
             }
         }
         return null;
     }
 
+    @Nullable
     public static Integer getBodySizeIfKnown(ZuulMessage msg) {
-        final Integer bodySize = getContentLengthIfPresent(msg);
+        Integer bodySize = getContentLengthIfPresent(msg);
         if (bodySize != null) {
-            return bodySize.intValue();
+            return bodySize;
         }
         if (msg.hasCompleteBody()) {
             return msg.getBodyLength();
@@ -149,12 +154,11 @@ public class HttpUtils
         return null;
     }
 
-    public static boolean hasChunkedTransferEncodingHeader(ZuulMessage msg)
-    {
+    public static boolean hasChunkedTransferEncodingHeader(ZuulMessage msg) {
         boolean isChunked = false;
         String teValue = msg.getHeaders().getFirst(com.netflix.zuul.message.http.HttpHeaderNames.TRANSFER_ENCODING);
         if (!Strings.isNullOrEmpty(teValue)) {
-            isChunked = "chunked".equals(teValue.toLowerCase());
+            isChunked = teValue.toLowerCase(Locale.ROOT).equals("chunked");
         }
         return isChunked;
     }
@@ -163,16 +167,41 @@ public class HttpUtils
      * If http/1 then will always want to just use ChannelHandlerContext.channel(), but for http/2
      * will want the parent channel (as the child channel is different for each h2 stream).
      */
-    public static Channel getMainChannel(ChannelHandlerContext ctx)
-    {
+    public static Channel getMainChannel(ChannelHandlerContext ctx) {
         return getMainChannel(ctx.channel());
     }
 
-    public static Channel getMainChannel(Channel channel)
-    {
+    public static Channel getMainChannel(Channel channel) {
         if (channel instanceof Http2StreamChannel) {
             return channel.parent();
         }
         return channel;
+    }
+
+    /**
+     * Normalizes a request-target into a routable path, collapsing {@code .} and {@code ..}
+     * segments (and their {@code %2e} encodings) and clamping traversal back to root. Encoded
+     * slashes ({@code %2f}) are left intact, so the result is not fully decoded. Throws
+     * {@link URISyntaxException} for opaque or malformed targets.
+     */
+    public static String parsePath(String uri) throws URISyntaxException {
+        Objects.requireNonNull(uri);
+        int queryIndex = uri.indexOf('?');
+        if (queryIndex > -1) {
+            uri = uri.substring(0, queryIndex);
+        }
+
+        URI uriObject = new URI(uri);
+        if (uriObject.isOpaque()) {
+            throw new URISyntaxException(uri, "opaque URI");
+        }
+
+        // Decode %2e before parsing so URI.normalize() can collapse encoded ".."/"." segments.
+        String prepared = uriObject.getRawPath().replace("%2e", ".").replace("%2E", ".");
+        String normalized = new URI(prepared).normalize().getRawPath();
+        while (normalized.equals("/..") || normalized.startsWith("/../")) {
+            normalized = normalized.substring(3);
+        }
+        return normalized;
     }
 }

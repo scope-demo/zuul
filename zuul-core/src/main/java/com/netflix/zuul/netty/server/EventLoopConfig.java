@@ -15,9 +15,15 @@
  */
 package com.netflix.zuul.netty.server;
 
-public interface EventLoopConfig
-{
+public interface EventLoopConfig {
     int eventLoopCount();
 
     int acceptorCount();
+
+    /**
+     * specifies the backlog (accept queue) size to use
+     */
+    default int getBacklogSize() {
+        return 128;
+    }
 }

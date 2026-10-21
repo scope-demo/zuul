@@ -15,27 +15,24 @@
  */
 package com.netflix.zuul.context;
 
-
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.netflix.config.DynamicPropertyFactory;
 import com.netflix.zuul.filters.FilterError;
 import com.netflix.zuul.message.http.HttpResponseMessage;
-import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import javax.annotation.Nullable;
+import java.util.function.Supplier;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Represents the context between client and origin server for the duration of the dedicated connection/session
- * between them. But we're currently still only modelling single request/response pair per session.
+ * between them. But we're currently still only modeling single request/response pair per session.
  *
  * NOTE: Not threadsafe, and not intended to be used concurrently.
  *
@@ -43,29 +40,37 @@ import javax.annotation.Nullable;
  * Date: 4/28/15
  * Time: 6:45 PM
  */
-public final class SessionContext extends HashMap<String, Object> implements Cloneable {
-    private static final int INITIAL_SIZE =
-            DynamicPropertyFactory.getInstance().getIntProperty("com.netflix.zuul.context.SessionContext.initialSize", 60).get();
+@NullMarked
+public final class SessionContext implements Cloneable {
+    private static final int INITIAL_SIZE = DynamicPropertyFactory.getInstance()
+            .getIntProperty("com.netflix.zuul.context.SessionContext.initialSize", 60)
+            .get();
+
+    private static final int EVENT_PROPERTIES_INITIAL_SIZE = DynamicPropertyFactory.getInstance()
+            .getIntProperty("com.netflix.zuul.context.SessionContext.eventProperties.initialSize", 128)
+            .get();
+
+    private static final SessionContext.Key<String> KEY_UUID = SessionContext.newKey("_uuid");
+    private static final SessionContext.Key<String> KEY_VIP = SessionContext.newKey("routeVIP");
+    private static final SessionContext.Key<String> KEY_ENDPOINT = SessionContext.newKey("_endpoint");
+    private static final SessionContext.Key<HttpResponseMessage> KEY_STATIC_RESPONSE =
+            SessionContext.newKey("_static_response");
+    private static final SessionContext.Key<Throwable> KEY_ERROR = SessionContext.newKey("_error");
+    private static final SessionContext.Key<String> KEY_ERROR_ENDPOINT = SessionContext.newKey("_error-endpoint");
+    private static final SessionContext.Key<Integer> KEY_ORIGIN_REPORTED_DURATION =
+            SessionContext.newKey("_originReportedDuration");
 
     private boolean brownoutMode = false;
     private boolean shouldStopFilterProcessing = false;
     private boolean shouldSendErrorResponse = false;
     private boolean errorResponseSent = false;
-    private boolean debugRouting = false;
-    private boolean debugRequest = false;
-    private boolean debugRequestHeadersOnly = false;
     private boolean cancelled = false;
 
-    private static final String KEY_UUID = "_uuid";
-    private static final String KEY_VIP = "routeVIP";
-    private static final String KEY_ENDPOINT = "_endpoint";
-    private static final String KEY_STATIC_RESPONSE = "_static_response";
-
-    private static final String KEY_EVENT_PROPS = "eventProperties";
-    private static final String KEY_FILTER_ERRORS = "_filter_errors";
-    private static final String KEY_FILTER_EXECS = "_filter_executions";
-
-    private final IdentityHashMap<Key<?>, ?> typedMap = new IdentityHashMap<>();
+    private final Map<String, Object> map;
+    private final IdentityHashMap<Key<?>, Object> typedMap;
+    private final StringBuilder filterExecutionSummary;
+    private final Map<String, Object> eventProperties;
+    private final List<FilterError> filterErrors;
 
     /**
      * A Key is type-safe, identity-based key into the Session Context.
@@ -75,8 +80,12 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
 
         private final String name;
 
-        private Key(String name) {
+        @Nullable
+        private final Supplier<T> defaultValueSupplier;
+
+        private Key(String name, @Nullable Supplier<T> defaultValueSupplier) {
             this.name = Objects.requireNonNull(name, "name");
+            this.defaultValueSupplier = defaultValueSupplier;
         }
 
         @Override
@@ -92,7 +101,7 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
          * This method exists solely to indicate that Keys are based on identity and not name.
          */
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             return super.equals(o);
         }
 
@@ -103,40 +112,61 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
         public int hashCode() {
             return super.hashCode();
         }
+
+        @Nullable
+        public T defaultValue() {
+            return defaultValueSupplier != null ? defaultValueSupplier.get() : null;
+        }
     }
 
-    public SessionContext()
-    {
-        // Use a higher than default initial capacity for the hashmap as we generally have more than the default
-        // 16 entries.
-        super(INITIAL_SIZE);
+    public SessionContext() {
+        this(INITIAL_SIZE, EVENT_PROPERTIES_INITIAL_SIZE);
+    }
 
-        put(KEY_FILTER_EXECS, new StringBuilder());
-        put(KEY_EVENT_PROPS, new HashMap<String, Object>());
-        put(KEY_FILTER_ERRORS, new ArrayList<FilterError>());
+    public SessionContext(int initialMapSize, int initialEventPropertiesSize) {
+        this.map = new HashMap<>(initialMapSize);
+        this.typedMap = new IdentityHashMap<>(initialMapSize);
+        this.filterExecutionSummary = new StringBuilder();
+        this.eventProperties = new HashMap<>(initialEventPropertiesSize);
+        this.filterErrors = new ArrayList<>();
     }
 
     public static <T> Key<T> newKey(String name) {
-        return new Key<>(name);
+        return newKey(name, null);
+    }
+
+    public static <T> Key<T> newKey(String name, @Nullable Supplier<T> defaultValueSupplier) {
+        return new Key<>(name, defaultValueSupplier);
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>This method exists for static analysis.
+     * Returns the value for the given string key, or {@code null} if absent.
      */
-    @Override
-    public Object get(Object key) {
-        return super.get(key);
+    @Nullable
+    public Object get(String key) {
+        return map.get(key);
     }
 
     /**
      * Returns the value in the context, or {@code null} if absent.
      */
-    @SuppressWarnings("unchecked")
     @Nullable
+    @SuppressWarnings("unchecked")
     public <T> T get(Key<T> key) {
-        return (T) typedMap.get(Objects.requireNonNull(key, "key"));
+        T value = (T) typedMap.get(key);
+        if (value == null) {
+            value = key.defaultValue();
+        }
+
+        return value;
+    }
+
+    /**
+     * Returns the value in the context, or default value from the
+     * typed key default value supplier if absent.
+     */
+    public <T> T getOrDefault(Key<T> key) {
+        return Objects.requireNonNull(this.get(key), "expected non-null value or defaultValue supplier");
     }
 
     /**
@@ -154,13 +184,32 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>This method exists for static analysis.
+     * Returns the value for the given string key, or {@code defaultValue} if absent.
      */
-    @Override
+    public Object getOrDefault(String key, Object defaultValue) {
+        return map.getOrDefault(key, defaultValue);
+    }
+
+    /**
+     * Checks for the existence of the string key in the context.
+     */
+    public boolean containsKey(String key) {
+        return map.containsKey(key);
+    }
+
+    /**
+     * Checks for the existence of the key in the context.
+     */
+    public <T> boolean containsKey(Key<T> key) {
+        return typedMap.containsKey(Objects.requireNonNull(key, "key"));
+    }
+
+    /**
+     * Associates the value with the given string key, returning the previous value or {@code null}.
+     */
+    @Nullable
     public Object put(String key, Object value) {
-        return super.put(key, value);
+        return map.put(key, value);
     }
 
     /**
@@ -173,69 +222,76 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(value, "value");
 
-        @SuppressWarnings("unchecked") // Sorry.
-        T res = ((Map<Key<T>, T>) (Map) typedMap).put(key, value);
+        @SuppressWarnings("unchecked")
+        T res = (T) typedMap.put(key, value);
         return res;
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>This method exists for static analysis.
+     * Removes the entry for the given string key only if it is currently mapped to the value.
      */
-    @Override
-    public boolean remove(Object key, Object value) {
-        return super.remove(key, value);
+    public boolean remove(String key, Object value) {
+        return map.remove(key, value);
     }
 
     public <T> boolean remove(Key<T> key, T value) {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(value, "value");
-        @SuppressWarnings("unchecked") // sorry
-        boolean res = ((Map<Key<T>, T>) (Map) typedMap).remove(key, value);
-        return res;
+        return typedMap.remove(key, value);
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * <p>This method exists for static analysis.
+     * Removes the entry for the given string key, returning the previous value or {@code null}.
      */
-    @Override
-    public Object remove(Object key) {
-        return super.remove(key);
+    @Nullable
+    public Object remove(String key) {
+        return map.remove(key);
     }
 
+    @Nullable
     public <T> T remove(Key<T> key) {
         Objects.requireNonNull(key, "key");
-        @SuppressWarnings("unchecked") // sorry
-        T res = ((Map<Key<T>, T>) (Map) typedMap).remove(key);
+        @SuppressWarnings("unchecked")
+        T res = (T) typedMap.remove(key);
         return res;
     }
 
     public Set<Key<?>> keys() {
-        return Collections.unmodifiableSet(new HashSet<>(typedMap.keySet()));
+        return Set.copyOf(typedMap.keySet());
+    }
+
+    public int size() {
+        return map.size() + typedMap.size();
     }
 
     /**
-     * Makes a copy of the RequestContext. This is used for debugging.
+     * Makes a shallow copy of the SessionContext.
      */
     @Override
-    public SessionContext clone()
-    {
-        // TODO(carl-mastrangelo): copy over the type safe keys
-        return (SessionContext) super.clone();
+    public SessionContext clone() {
+        SessionContext copy = new SessionContext();
+        copy.map.putAll(this.map);
+        copy.typedMap.putAll(this.typedMap);
+        copy.filterExecutionSummary.append(this.filterExecutionSummary);
+        copy.eventProperties.putAll(this.eventProperties);
+        copy.filterErrors.addAll(this.filterErrors);
+        copy.brownoutMode = brownoutMode;
+        copy.shouldStopFilterProcessing = shouldStopFilterProcessing;
+        copy.shouldSendErrorResponse = shouldSendErrorResponse;
+        copy.errorResponseSent = errorResponseSent;
+        copy.cancelled = cancelled;
+        return copy;
     }
 
-    public String getString(String key)
-    {
+    @Nullable
+    public String getString(String key) {
         return (String) get(key);
     }
 
     /**
      * Convenience method to return a boolean value for a given key
      *
-     * @return true or false depending what was set. default is false
+     * @return true or false depending on what was set. default is false
      */
     public boolean getBoolean(String key) {
         return getBoolean(key, false);
@@ -249,133 +305,83 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
     public boolean getBoolean(String key, boolean defaultResponse) {
         Boolean b = (Boolean) get(key);
         if (b != null) {
-            return b.booleanValue();
+            return b;
         }
         return defaultResponse;
     }
 
     /**
-     * sets a key value to Boolean.TRUE
+     * sets a key value to true
      */
     public void set(String key) {
-        put(key, Boolean.TRUE);
+        put(key, true);
     }
 
     /**
      * puts the key, value into the map. a null value will remove the key from the map
      *
      */
-    public void set(String key, Object value) {
-        if (value != null) put(key, value);
-        else remove(key);
+    public void set(String key, @Nullable Object value) {
+        if (value != null) {
+            put(key, value);
+        } else {
+            remove(key);
+        }
     }
 
-    public String getUUID()
-    {
-        return getString(KEY_UUID);
+    /**
+     * Puts the key, value into the context. A null value removes the key from the map.
+     */
+    public <T> void set(Key<T> key, @Nullable T value) {
+        if (value != null) {
+            put(key, value);
+        } else {
+            remove(key);
+        }
     }
-    public void setUUID(String uuid)
-    {
+
+    @Nullable
+    public String getUUID() {
+        return get(KEY_UUID);
+    }
+
+    public void setUUID(String uuid) {
         set(KEY_UUID, uuid);
     }
 
     public void setStaticResponse(HttpResponseMessage response) {
         set(KEY_STATIC_RESPONSE, response);
     }
+
+    @Nullable
     public HttpResponseMessage getStaticResponse() {
-        return (HttpResponseMessage) get(KEY_STATIC_RESPONSE);
+        return get(KEY_STATIC_RESPONSE);
     }
 
     /**
      * Gets the throwable that will be use in the Error endpoint.
      *
      */
+    @Nullable
     public Throwable getError() {
-        return (Throwable) get("_error");
-
+        return get(KEY_ERROR);
     }
 
     /**
-     * Sets throwable to use for generating a response in the Error endpoint.
+     * Sets throwable to use for generating a response in the Error endpoint. A null throwable clears any existing
+     * error.
      */
-    public void setError(Throwable th) {
-        put("_error", th);
-
+    public void setError(@Nullable Throwable th) {
+        set(KEY_ERROR, th);
     }
 
+    @Nullable
     public String getErrorEndpoint() {
-        return (String) get("_error-endpoint");
-    }
-    public void setErrorEndpoint(String name) {
-        put("_error-endpoint", name);
+        return get(KEY_ERROR_ENDPOINT);
     }
 
-    /**
-     * sets  debugRouting
-     */
-    public void setDebugRouting(boolean bDebug) {
-        this.debugRouting = bDebug;
-    }
-
-    /**
-     * @return "debugRouting"
-     */
-    public boolean debugRouting() {
-        return debugRouting;
-    }
-
-    /**
-     * sets "debugRequestHeadersOnly" to bHeadersOnly
-     *
-     */
-    public void setDebugRequestHeadersOnly(boolean bHeadersOnly) {
-        this.debugRequestHeadersOnly = bHeadersOnly;
-    }
-
-    /**
-     * @return "debugRequestHeadersOnly"
-     */
-    public boolean debugRequestHeadersOnly() {
-        return this.debugRequestHeadersOnly;
-    }
-
-    /**
-     * sets "debugRequest"
-     */
-    public void setDebugRequest(boolean bDebug) {
-        this.debugRequest = bDebug;
-    }
-
-    /**
-     * gets debugRequest
-     *
-     * @return debugRequest
-     */
-    public boolean debugRequest() {
-        return this.debugRequest;
-    }
-
-    /**
-     * removes "routeHost" key
-     */
-    public void removeRouteHost() {
-        remove("routeHost");
-    }
-
-    /**
-     * sets routeHost
-     *
-     * @param routeHost a URL
-     */
-    public void setRouteHost(URL routeHost) {
-        set("routeHost", routeHost);
-    }
-
-    /**
-     * @return "routeHost" URL
-     */
-    public URL getRouteHost() {
-        return (URL) get("routeHost");
+    public void setErrorEndpoint(@Nullable String name) {
+        set(KEY_ERROR_ENDPOINT, name);
     }
 
     /**
@@ -384,15 +390,23 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
      */
     public void addFilterExecutionSummary(String name, String status, long time) {
         StringBuilder sb = getFilterExecutionSummary();
-        if (sb.length() > 0) sb.append(", ");
-        sb.append(name).append('[').append(status).append(']').append('[').append(time).append("ms]");
+        if (!sb.isEmpty()) {
+            sb.append(", ");
+        }
+        sb.append(name)
+                .append('[')
+                .append(status)
+                .append(']')
+                .append('[')
+                .append(time)
+                .append("ms]");
     }
 
     /**
      * @return String that represents the filter execution history for the current request
      */
     public StringBuilder getFilterExecutionSummary() {
-        return (StringBuilder) get(KEY_FILTER_EXECS);
+        return filterExecutionSummary;
     }
 
     public boolean shouldSendErrorResponse() {
@@ -408,7 +422,6 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
         this.shouldSendErrorResponse = should;
     }
 
-
     public boolean errorResponseSent() {
         return this.errorResponseSent;
     }
@@ -417,20 +430,32 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
         this.errorResponseSent = should;
     }
 
-
     /**
      * This can be used by filters for flagging if the server is getting overloaded, and then choose
      * to disable/sample/rate-limit some optional features.
      *
      */
-    public boolean isInBrownoutMode()
-    {
+    public boolean isInBrownoutMode() {
         return brownoutMode;
     }
 
-    public void setInBrownoutMode()
-    {
+    /**
+     * Flag the server is getting overloaded.
+     * @deprecated use setInBrownoutMode(String reason)
+     */
+    @Deprecated
+    public void setInBrownoutMode() {
         this.brownoutMode = true;
+    }
+
+    public void setInBrownoutMode(String reason) {
+        this.brownoutMode = true;
+        put(CommonContextKeys.BROWNOUT_REASON, reason);
+    }
+
+    @Nullable
+    public String getBrownoutReason() {
+        return get(CommonContextKeys.BROWNOUT_REASON);
     }
 
     /**
@@ -449,8 +474,9 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
      * returns the routeVIP; that is the Eureka "vip" of registered instances
      *
      */
+    @Nullable
     public String getRouteVIP() {
-        return (String) get(KEY_VIP);
+        return get(KEY_VIP);
     }
 
     /**
@@ -460,14 +486,13 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
         set(KEY_VIP, sVip);
     }
 
-    public void setEndpoint(String endpoint)
-    {
-        put(KEY_ENDPOINT, endpoint);
+    public void setEndpoint(String endpoint) {
+        set(KEY_ENDPOINT, endpoint);
     }
 
-    public String getEndpoint()
-    {
-        return (String) get(KEY_ENDPOINT);
+    @Nullable
+    public String getEndpoint() {
+        return get(KEY_ENDPOINT);
     }
 
     public void setEventProperty(String key, Object value) {
@@ -475,23 +500,21 @@ public final class SessionContext extends HashMap<String, Object> implements Clo
     }
 
     public Map<String, Object> getEventProperties() {
-        return (Map<String, Object>) this.get(KEY_EVENT_PROPS);
+        return eventProperties;
     }
 
     public List<FilterError> getFilterErrors() {
-        return (List<FilterError>) get(KEY_FILTER_ERRORS);
+        return filterErrors;
     }
 
-    public void setOriginReportedDuration(int duration)
-    {
-        put("_originReportedDuration", duration);
+    public void setOriginReportedDuration(int duration) {
+        set(KEY_ORIGIN_REPORTED_DURATION, duration);
     }
 
-    public int getOriginReportedDuration()
-    {
-        Object value = get("_originReportedDuration");
+    public int getOriginReportedDuration() {
+        Integer value = get(KEY_ORIGIN_REPORTED_DURATION);
         if (value != null) {
-            return (Integer) value;
+            return value;
         }
         return -1;
     }

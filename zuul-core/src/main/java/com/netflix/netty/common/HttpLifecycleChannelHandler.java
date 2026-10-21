@@ -23,6 +23,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpStatusClass;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 import org.slf4j.Logger;
@@ -34,21 +36,22 @@ import org.slf4j.LoggerFactory;
  * Time: 4:09 PM
  */
 public abstract class HttpLifecycleChannelHandler {
-    private static final Logger LOG = LoggerFactory.getLogger(HttpLifecycleChannelHandler.class);
+    private static final Logger logger = LoggerFactory.getLogger(HttpLifecycleChannelHandler.class);
 
     public static final AttributeKey<HttpRequest> ATTR_HTTP_REQ = AttributeKey.newInstance("_http_request");
     public static final AttributeKey<HttpResponse> ATTR_HTTP_RESP = AttributeKey.newInstance("_http_response");
-    public static final AttributeKey<Boolean> ATTR_HTTP_PIPELINE_REJECT = AttributeKey.newInstance("_http_pipeline_reject");
+    public static final AttributeKey<Boolean> ATTR_HTTP_PIPELINE_REJECT =
+            AttributeKey.newInstance("_http_pipeline_reject");
 
     protected enum State {
-        STARTED, COMPLETED
+        STARTED,
+        COMPLETED
     }
 
     @VisibleForTesting
     protected static final AttributeKey<State> ATTR_STATE = AttributeKey.newInstance("_httplifecycle_state");
 
-    protected static boolean fireStartEvent(ChannelHandlerContext ctx, HttpRequest request)
-    {
+    protected static boolean fireStartEvent(ChannelHandlerContext ctx, HttpRequest request) {
         // Only allow this method to run once per request.
         Channel channel = ctx.channel();
         Attribute<State> attr = channel.attr(ATTR_STATE);
@@ -57,29 +60,31 @@ public abstract class HttpLifecycleChannelHandler {
         if (state == State.STARTED) {
             // This could potentially happen if a bad client sends a 2nd request on the same connection
             // without waiting for the response from the first. And we don't support HTTP Pipelining.
-            LOG.error("Received a http request on connection where we already have a request being processed. " +
-                    "Closing the connection now. channel = " + channel.id().asLongText());
-            channel.attr(ATTR_HTTP_PIPELINE_REJECT).set(Boolean.TRUE);
+            logger.debug(
+                    "Received a http request on connection where we already have a request being processed. Closing"
+                            + " the connection now. channel = {}",
+                    channel.id().asLongText());
+            channel.attr(ATTR_HTTP_PIPELINE_REJECT).set(true);
             channel.close();
             return false;
         }
-        
+
         channel.attr(ATTR_STATE).set(State.STARTED);
         channel.attr(ATTR_HTTP_REQ).set(request);
         ctx.pipeline().fireUserEventTriggered(new StartEvent(request));
-        
+
         return true;
     }
 
-    protected static boolean fireCompleteEventIfNotAlready(ChannelHandlerContext ctx, CompleteReason reason)
-    {
+    protected static boolean fireCompleteEventIfNotAlready(ChannelHandlerContext ctx, CompleteReason reason) {
         // Only allow this method to run once per request.
         Attribute<State> attr = ctx.channel().attr(ATTR_STATE);
         State state = attr.get();
 
-        if (state == null || state != State.STARTED)
+        if (state == null || state != State.STARTED) {
             return false;
-        
+        }
+
         attr.set(State.COMPLETED);
 
         HttpRequest request = ctx.channel().attr(ATTR_HTTP_REQ).get();
@@ -91,92 +96,97 @@ public abstract class HttpLifecycleChannelHandler {
 
         // Fire the event to whole pipeline.
         ctx.pipeline().fireUserEventTriggered(new CompleteEvent(reason, request, response));
-        
+
         return true;
     }
 
-    protected static void addPassportState(ChannelHandlerContext ctx, PassportState state)
-    {
+    /**
+     * Returns whether the response is a 1xx interim response that will be followed by a further response on the same
+     * connection (e.g. 100 Continue, 102 Processing, 103 Early Hints), and so does not complete the HTTP session.
+     *
+     * <p>101 Switching Protocols is deliberately excluded: although numerically a 1xx, it is a terminal response that
+     * hands the connection off to another protocol (e.g. WebSocket). The HTTP session is complete at that point, so it
+     * must not be treated as interim.
+     */
+    public static boolean isInterimResponse(HttpResponse response) {
+        return response != null
+                && response.status().codeClass() == HttpStatusClass.INFORMATIONAL
+                && !response.status().equals(HttpResponseStatus.SWITCHING_PROTOCOLS);
+    }
+
+    protected static void addPassportState(ChannelHandlerContext ctx, PassportState state) {
         CurrentPassport passport = CurrentPassport.fromChannel(ctx.channel());
         passport.add(state);
     }
 
-    public enum CompleteReason
-    {
+    public enum CompleteReason {
         SESSION_COMPLETE,
         INACTIVE,
-//        IDLE,
+        //        IDLE,
         DISCONNECT,
         DEREGISTER,
         PIPELINE_REJECT,
         EXCEPTION,
         CLOSE
-//        FAILURE_CLIENT_CANCELLED,
-//        FAILURE_CLIENT_TIMEOUT;
+        //        FAILURE_CLIENT_CANCELLED,
+        //        FAILURE_CLIENT_TIMEOUT;
 
-//        private final NfStatus nfStatus;
-//        private final int responseStatus;
-//
-//        CompleteReason(NfStatus nfStatus, int responseStatus) {
-//            this.nfStatus = nfStatus;
-//            this.responseStatus = responseStatus;
-//        }
-//
-//        CompleteReason() {
-//            //For status that never gets returned back to client, like channel inactive
-//            nfStatus = null;
-//            responseStatus = 501;
-//        }
-//
-//        public NfStatus getNfStatus() {
-//            return nfStatus;
-//        }
-//
-//        public int getResponseStatus() {
-//            return responseStatus;
-//        }
+        //        private final NfStatus nfStatus;
+        //        private final int responseStatus;
+        //
+        //        CompleteReason(NfStatus nfStatus, int responseStatus) {
+        //            this.nfStatus = nfStatus;
+        //            this.responseStatus = responseStatus;
+        //        }
+        //
+        //        CompleteReason() {
+        //            //For status that never gets returned back to client, like channel inactive
+        //            nfStatus = null;
+        //            responseStatus = 501;
+        //        }
+        //
+        //        public NfStatus getNfStatus() {
+        //            return nfStatus;
+        //        }
+        //
+        //        public int getResponseStatus() {
+        //            return responseStatus;
+        //        }
     }
-    
+
     public static class StartEvent {
         private final HttpRequest request;
 
-        public StartEvent(HttpRequest request)
-        {
+        public StartEvent(HttpRequest request) {
             this.request = request;
         }
 
-        public HttpRequest getRequest()
-        {
+        public HttpRequest getRequest() {
             return request;
         }
     }
-    
+
     public static class CompleteEvent {
         private final CompleteReason reason;
         private final HttpRequest request;
         private final HttpResponse response;
 
-        public CompleteEvent(CompleteReason reason, HttpRequest request, HttpResponse response)
-        {
+        public CompleteEvent(CompleteReason reason, HttpRequest request, HttpResponse response) {
             this.reason = reason;
             this.request = request;
             this.response = response;
         }
 
-        public CompleteReason getReason()
-        {
+        public CompleteReason getReason() {
             return reason;
         }
 
-        public HttpRequest getRequest()
-        {
+        public HttpRequest getRequest() {
             return request;
         }
-        
-        public HttpResponse getResponse()
-        {
+
+        public HttpResponse getResponse() {
             return response;
         }
     }
-
 }

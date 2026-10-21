@@ -15,43 +15,41 @@
  */
 package com.netflix.zuul.filters;
 
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.netflix.config.ConfigurationManager;
+import com.netflix.zuul.context.SessionContext;
+import com.netflix.zuul.message.Headers;
 import com.netflix.zuul.message.ZuulMessage;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import com.netflix.zuul.message.ZuulMessageImpl;
+import java.util.concurrent.CompletableFuture;
+import org.apache.commons.configuration.AbstractConfiguration;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Tests for {@link BaseFilter}.   Currently named BaseFilter2Test as there is an existing
- * class named BaseFilterTest.
+ * Tests for {@link BaseFilter}
  */
-@RunWith(JUnit4.class)
-public class BaseFilterTest {
+@ExtendWith(MockitoExtension.class)
+class BaseFilterTest {
 
-    @Mock
-    private BaseFilter f1;
-    @Mock
-    private BaseFilter f2;
-    @Mock
-    private ZuulMessage req;
+    private final AbstractConfiguration config = ConfigurationManager.getConfigInstance();
 
-    @Before
-    public void before() {
-        MockitoAnnotations.initMocks(this);
+    @BeforeEach
+    public void setUpTest() {
+        config.clear();
     }
 
     @Test
-    public void testShouldFilter() {
-        class TestZuulFilter extends BaseSyncFilter
-        {
+    void validateDefaultConcurrencyLimit() {
+        int[] limit = {0};
+        class ConcInboundFilter extends BaseFilter<ZuulMessage, ZuulMessage> {
             @Override
-            public int filterOrder() {
-                return 0;
+            public CompletableFuture<ZuulMessage> applyAsync(ZuulMessage input) {
+                limit[0] = calculateConcurency();
+                return CompletableFuture.completedFuture(new ZuulMessageImpl(new SessionContext()));
             }
 
             @Override
@@ -60,20 +58,71 @@ public class BaseFilterTest {
             }
 
             @Override
-            public boolean shouldFilter(ZuulMessage req) {
-                return false;
+            public boolean shouldFilter(ZuulMessage msg) {
+                return true;
+            }
+        }
+        new ConcInboundFilter()
+                .applyAsync(new ZuulMessageImpl(new SessionContext(), new Headers()))
+                .join();
+        assertThat(limit[0]).isEqualTo(4000);
+    }
+
+    @Test
+    void validateFilterGlobalConcurrencyLimitOverride() {
+        config.setProperty("zuul.filter.concurrency.limit.default", 7000);
+        config.setProperty("zuul.ConcInboundFilter.in.concurrency.limit", 4000);
+        int[] limit = {0};
+
+        class ConcInboundFilter extends BaseFilter<ZuulMessage, ZuulMessage> {
+            @Override
+            public CompletableFuture<ZuulMessage> applyAsync(ZuulMessage input) {
+                limit[0] = calculateConcurency();
+                return CompletableFuture.completedFuture(new ZuulMessageImpl(new SessionContext()));
             }
 
             @Override
-            public ZuulMessage apply(ZuulMessage req) {
-                return null;
+            public FilterType filterType() {
+                return FilterType.INBOUND;
+            }
+
+            @Override
+            public boolean shouldFilter(ZuulMessage msg) {
+                return true;
             }
         }
+        new ConcInboundFilter()
+                .applyAsync(new ZuulMessageImpl(new SessionContext(), new Headers()))
+                .join();
+        assertThat(limit[0]).isEqualTo(7000);
+    }
 
-        TestZuulFilter tf1 = spy(new TestZuulFilter());
-        TestZuulFilter tf2 = spy(new TestZuulFilter());
+    @Test
+    void validateFilterSpecificConcurrencyLimitOverride() {
+        config.setProperty("zuul.filter.concurrency.limit.default", 7000);
+        config.setProperty("zuul.ConcInboundFilter.in.concurrency.limit", 4300);
+        int[] limit = {0};
 
-        when(tf1.shouldFilter(req)).thenReturn(true);
-        when(tf2.shouldFilter(req)).thenReturn(false);
+        class ConcInboundFilter extends BaseFilter<ZuulMessage, ZuulMessage> {
+            @Override
+            public CompletableFuture<ZuulMessage> applyAsync(ZuulMessage input) {
+                limit[0] = calculateConcurency();
+                return CompletableFuture.completedFuture(new ZuulMessageImpl(new SessionContext()));
+            }
+
+            @Override
+            public FilterType filterType() {
+                return FilterType.INBOUND;
+            }
+
+            @Override
+            public boolean shouldFilter(ZuulMessage msg) {
+                return true;
+            }
+        }
+        new ConcInboundFilter()
+                .applyAsync(new ZuulMessageImpl(new SessionContext(), new Headers()))
+                .join();
+        assertThat(limit[0]).isEqualTo(4300);
     }
 }

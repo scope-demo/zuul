@@ -16,59 +16,53 @@
 
 package com.netflix.zuul.message.http;
 
-import io.netty.handler.codec.http.Cookie;
-
+import io.netty.handler.codec.http.cookie.Cookie;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * User: Mike Smith
  * Date: 6/18/15
  * Time: 12:04 AM
  */
-public class Cookies
-{
-    private Map<String, List<Cookie>> map = new HashMap<>();
-    private List<Cookie> all = new ArrayList<>();
+public class Cookies {
+    private final Map<String, List<Cookie>> map = new HashMap<>();
+    private final List<Cookie> all = new ArrayList<>();
 
-    public void add(Cookie cookie)
-    {
-        List<Cookie> existing = map.get(cookie.getName());
-        if (existing == null) {
-            existing = new ArrayList<>();
-            map.put(cookie.getName(), existing);
-        }
-        existing.add(cookie);
+    public void add(Cookie cookie) {
+        map.computeIfAbsent(cookie.name(), k -> new ArrayList<>(1)).add(cookie);
         all.add(cookie);
     }
 
-    public List<Cookie> getAll()
-    {
+    public List<Cookie> getAll() {
         return all;
     }
 
-    public List<Cookie> get(String name)
-    {
+    public Set<String> getNames() {
+        return Collections.unmodifiableSet(map.keySet());
+    }
+
+    public List<Cookie> get(String name) {
         return map.get(name);
     }
 
-    public Cookie getFirst(String name)
-    {
+    public Cookie getFirst(String name) {
         List<Cookie> found = map.get(name);
-        if (found == null || found.size() == 0) {
+        if (found == null || found.isEmpty()) {
             return null;
         }
         return found.get(0);
     }
 
-    public String getFirstValue(String name)
-    {
+    public String getFirstValue(String name) {
         Cookie c = getFirst(name);
         String value;
         if (c != null) {
-            value = c.getValue();
+            value = c.value();
         } else {
             value = null;
         }

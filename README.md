@@ -1,8 +1,9 @@
+[![Snapshot](https://github.com/Netflix/zuul/actions/workflows/snapshot.yml/badge.svg)](https://github.com/Netflix/zuul/actions/workflows/snapshot.yml)
+
 # Zuul
 
 <img src="https://i.imgur.com/mRSosEp.png" width=500/>
 
-[![Build Status](https://travis-ci.org/Netflix/zuul.svg)](https://travis-ci.org/Netflix/zuul/builds)
 
 Zuul is an L7 application gateway that provides capabilities for dynamic routing, monitoring, resiliency, security, and more.
 Please view the wiki for usage, information, HOWTO, etc https://github.com/Netflix/zuul/wiki
@@ -55,7 +56,7 @@ https://jhipster.github.io/
 
 Info and examples from various projects:
 
-https://spring.io/guides/gs/routing-and-filtering/
+https://cloud.spring.io/spring-cloud-netflix/multi/multi__router_and_filter_zuul
 
 http://www.baeldung.com/spring-rest-with-zuul-proxy
 
@@ -74,3 +75,15 @@ https://engineering.riotgames.com/news/riot-games-api-deep-dive
 http://instea.sk/2015/04/netflix-zuul-vs-nginx-performance/
 
 ---
+
+
+# How to release Zuul
+
+This project uses a GitHub Action workflow for publishing a new release.
+The workflow is triggered by following these steps:
+
+1. Go to the Releases page [here](https://github.com/Netflix/zuul/releases) 
+2. Draft a new release
+3. Click `Select tag`, then `Create new tag` (ex. `vX.Y.Z)
+4. Select `Generate release notes` and Click `Publish release`
+5. Approve the new release in the [Actions](https://github.com/Netflix/zuul/actions) tab

@@ -16,33 +16,34 @@
 
 package com.netflix.zuul.filters.processor;
 
-import com.google.common.truth.Truth;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.netflix.zuul.StaticFilterLoader;
 import com.netflix.zuul.filters.ZuulFilter;
 import com.netflix.zuul.filters.processor.override.SubpackageFilter;
 import com.netflix.zuul.filters.processor.subpackage.OverrideFilter;
 import java.util.Collection;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link FilterProcessor}.
  */
-@RunWith(JUnit4.class)
-public class FilterProcessorTest {
+class FilterProcessorTest {
 
     @Test
-    public void allFilterClassedRecorded() throws Exception {
+    void allFilterClassedRecorded() throws Exception {
         Collection<Class<ZuulFilter<?, ?>>> filters =
                 StaticFilterLoader.loadFilterTypesFromResources(getClass().getClassLoader());
 
-        Truth.assertThat(filters).containsExactly(
-                OuterClassFilter.class,
-                TopLevelFilter.class,
-                TopLevelFilter.StaticSubclassFilter.class,
-                TopLevelFilter.SubclassFilter.class,
-                OverrideFilter.class,
-                SubpackageFilter.class);
+        @SuppressWarnings("unchecked")
+        Class<ZuulFilter<?, ?>>[] expected = new Class[] {
+            OuterClassFilter.class,
+            TopLevelFilter.class,
+            TopLevelFilter.StaticSubclassFilter.class,
+            TopLevelFilter.SubclassFilter.class,
+            OverrideFilter.class,
+            SubpackageFilter.class
+        };
+        assertThat(filters).containsExactlyInAnyOrder(expected);
     }
 }

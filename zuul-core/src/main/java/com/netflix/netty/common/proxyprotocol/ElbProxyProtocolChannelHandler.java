@@ -16,8 +16,7 @@
 
 package com.netflix.netty.common.proxyprotocol;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import com.netflix.spectator.api.Counter;
+import com.netflix.netty.common.SourceAddressChannelHandler;
 import com.netflix.spectator.api.Registry;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -25,6 +24,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.ProtocolDetectionState;
 import io.netty.handler.codec.haproxy.HAProxyMessageDecoder;
+import lombok.NonNull;
 
 /**
  * Decides if we need to decode a HAProxyMessage. If so, adds the decoder followed by the handler.
@@ -34,13 +34,11 @@ public final class ElbProxyProtocolChannelHandler extends ChannelInboundHandlerA
 
     public static final String NAME = ElbProxyProtocolChannelHandler.class.getSimpleName();
     private final boolean withProxyProtocol;
-    private final Registry spectatorRegistry;
-    private final Counter hapmDecodeFailure;
+    private final Registry registry;
 
-    public ElbProxyProtocolChannelHandler(Registry registry, boolean withProxyProtocol) {
+    public ElbProxyProtocolChannelHandler(@NonNull Registry registry, boolean withProxyProtocol) {
         this.withProxyProtocol = withProxyProtocol;
-        this.spectatorRegistry = checkNotNull(registry);
-        this.hapmDecodeFailure = spectatorRegistry.counter("zuul.hapm.failure");
+        this.registry = registry;
     }
 
     public void addProxyProtocol(ChannelPipeline pipeline) {
@@ -49,20 +47,39 @@ public final class ElbProxyProtocolChannelHandler extends ChannelInboundHandlerA
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (withProxyProtocol && isHAPMDetected(msg)) {
-            ctx.pipeline().addAfter(NAME, null, new HAProxyMessageChannelHandler())
+        if (!withProxyProtocol) {
+            ctx.pipeline().remove(this);
+            super.channelRead(ctx, msg);
+            return;
+        }
+
+        ProtocolDetectionState haProxyState = getDetectionState(msg);
+        if (haProxyState == ProtocolDetectionState.DETECTED) {
+            ctx.pipeline()
+                    .addAfter(NAME, null, new HAProxyMessageChannelHandler())
                     .replace(this, null, new HAProxyMessageDecoder());
         } else {
-            if (withProxyProtocol) {
-                // This likely means initialization was requested with proxy protocol, but we failed to decode the message
-                hapmDecodeFailure.increment();
-            }
+            int port = ctx.channel()
+                    .attr(SourceAddressChannelHandler.ATTR_SERVER_LOCAL_PORT)
+                    .get();
+
+            // This likely means initialization was requested with proxy protocol, but we encountered a non-ppv2
+            // message
+            registry.counter(
+                            "zuul.hapm.decode",
+                            "success",
+                            "false",
+                            "port",
+                            String.valueOf(port),
+                            "needs_more_data",
+                            String.valueOf(haProxyState == ProtocolDetectionState.NEEDS_MORE_DATA))
+                    .increment();
             ctx.pipeline().remove(this);
         }
         super.channelRead(ctx, msg);
     }
 
-    private boolean isHAPMDetected(Object msg) {
-        return HAProxyMessageDecoder.detectProtocol((ByteBuf) msg).state() == ProtocolDetectionState.DETECTED;
+    private ProtocolDetectionState getDetectionState(Object msg) {
+        return HAProxyMessageDecoder.detectProtocol((ByteBuf) msg).state();
     }
 }

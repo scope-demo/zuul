@@ -18,26 +18,28 @@ package com.netflix.zuul;
 
 import com.netflix.spectator.api.Registry;
 import com.netflix.zuul.filters.ZuulFilter;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 /**
  * Publishes a counter metric for each filter on each use.
  */
 public class BasicFilterUsageNotifier implements FilterUsageNotifier {
-    private static final String METRIC_PREFIX = "zuul.filter-";
+
     private final Registry registry;
 
     @Inject
-    BasicFilterUsageNotifier(Registry registry) {
+    public BasicFilterUsageNotifier(Registry registry) {
         this.registry = registry;
     }
 
     @Override
     public void notify(ZuulFilter<?, ?> filter, ExecutionStatus status) {
         registry.counter(
-                "zuul.filter-" + filter.getClass().getSimpleName(),
-                "status", status.name(),
-                "filtertype", filter.filterType().toString()).increment();
+                        "zuul.filter-" + filter.getClass().getSimpleName(),
+                        "status",
+                        status.name(),
+                        "filtertype",
+                        filter.filterType().toString())
+                .increment();
     }
 }
-

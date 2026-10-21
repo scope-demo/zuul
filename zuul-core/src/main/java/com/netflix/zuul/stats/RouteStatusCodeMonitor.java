@@ -32,8 +32,10 @@ import javax.annotation.Nullable;
  */
 public class RouteStatusCodeMonitor implements NamedCount {
     private final String routeCode;
+
     @VisibleForTesting
     final String route;
+
     private final int statusCode;
 
     private final AtomicLong count = new AtomicLong();
@@ -53,10 +55,12 @@ public class RouteStatusCodeMonitor implements NamedCount {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        RouteStatusCodeMonitor statsData = (RouteStatusCodeMonitor) o;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || !(o instanceof RouteStatusCodeMonitor statsData)) {
+            return false;
+        }
 
         if (statusCode != statsData.statusCode) {
             return false;
@@ -80,6 +84,7 @@ public class RouteStatusCodeMonitor implements NamedCount {
         return routeCode;
     }
 
+    @Override
     public long getCount() {
         return count.get();
     }

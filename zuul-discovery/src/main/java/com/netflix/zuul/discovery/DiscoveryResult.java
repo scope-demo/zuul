@@ -42,11 +42,13 @@ public final class DiscoveryResult implements ResolverResult {
      * This exists to allow for a semblance of type safety, and encourages avoiding null checks on the underlying Server,
      * thus representing a sentinel value for an empty resolution result.
      */
-    public static final DiscoveryResult EMPTY =
-            DiscoveryResult.from(InstanceInfo.Builder.newBuilder()
-                                .setAppName("undefined")
-                                .setHostName("undefined")
-                                .setPort(-1).build(), false);
+    public static final DiscoveryResult EMPTY = DiscoveryResult.from(
+            InstanceInfo.Builder.newBuilder()
+                    .setAppName("undefined")
+                    .setHostName("undefined")
+                    .setPort(-1)
+                    .build(),
+            false);
 
     public DiscoveryResult(DiscoveryEnabledServer server, LoadBalancerStats lbStats) {
         this.server = server;
@@ -55,28 +57,32 @@ public final class DiscoveryResult implements ResolverResult {
     }
 
     /**
-     *
      * This solely exists to create a result object from incomplete InstanceInfo.
      * Usage of this for production code is strongly discouraged, since the underlying instances are prone to memory leaks
      */
     public DiscoveryResult(DiscoveryEnabledServer server) {
         this.server = server;
-        this.serverStats = new ServerStats();
+        this.serverStats = new ServerStats() {
+            @Override
+            public String toString() {
+                return "no stats configured for server";
+            }
+        };
     }
 
     /**
-     *
      * This convenience method exists for usage in tests. For production usage, please use the constructor linked:
+     *
      * @see DiscoveryResult#DiscoveryResult(DiscoveryEnabledServer, LoadBalancerStats)
      */
     @VisibleForTesting
     public static DiscoveryResult from(InstanceInfo instanceInfo, boolean useSecurePort) {
-        final DiscoveryEnabledServer server = new DiscoveryEnabledServer(instanceInfo, useSecurePort);
+        DiscoveryEnabledServer server = new DiscoveryEnabledServer(instanceInfo, useSecurePort);
         return new DiscoveryResult(server);
     }
 
     public Optional<String> getIPAddr() {
-        if (this == DiscoveryResult.EMPTY) {
+        if (this.equals(DiscoveryResult.EMPTY)) {
             return Optional.empty();
         }
         if (server.getInstanceInfo() != null) {
@@ -96,7 +102,7 @@ public final class DiscoveryResult implements ResolverResult {
 
     @Override
     public boolean isDiscoveryEnabled() {
-        return server instanceof DiscoveryEnabledServer;
+        return server != null;
     }
 
     @Override
@@ -113,7 +119,7 @@ public final class DiscoveryResult implements ResolverResult {
     }
 
     public String getTarget() {
-        final InstanceInfo instanceInfo = server.getInstanceInfo();
+        InstanceInfo instanceInfo = server.getInstanceInfo();
         if (server.getPort() == instanceInfo.getSecurePort()) {
             return instanceInfo.getSecureVipAddress();
         } else {
@@ -121,14 +127,13 @@ public final class DiscoveryResult implements ResolverResult {
         }
     }
 
-
     public SimpleMetaInfo getMetaInfo() {
         return new SimpleMetaInfo(server.getMetaInfo());
     }
 
     @Nullable
     public String getAvailabilityZone() {
-        final InstanceInfo instanceInfo = server.getInstanceInfo();
+        InstanceInfo instanceInfo = server.getInstanceInfo();
         if (instanceInfo.getDataCenterInfo() instanceof AmazonInfo) {
             return ((AmazonInfo) instanceInfo.getDataCenterInfo()).getMetadata().get("availability-zone");
         }
@@ -148,7 +153,7 @@ public final class DiscoveryResult implements ResolverResult {
     }
 
     @VisibleForTesting
-    ServerStats getServerStats(){
+    ServerStats getServerStats() {
         return this.serverStats;
     }
 
@@ -221,7 +226,6 @@ public final class DiscoveryResult implements ResolverResult {
         return Objects.hashCode(server);
     }
 
-
     /**
      * Two instances are deemed identical if they wrap the same underlying discovery server instance.
      */
@@ -231,11 +235,9 @@ public final class DiscoveryResult implements ResolverResult {
             return true;
         }
 
-        if (!(obj instanceof DiscoveryResult)) {
+        if (!(obj instanceof DiscoveryResult other)) {
             return false;
         }
-        final DiscoveryResult other = (DiscoveryResult) obj;
         return server.equals(other.server);
     }
-
 }

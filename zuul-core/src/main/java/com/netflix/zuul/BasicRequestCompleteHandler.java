@@ -16,28 +16,25 @@
 
 package com.netflix.zuul;
 
+import com.netflix.zuul.context.SessionContext;
 import com.netflix.zuul.message.http.HttpRequestInfo;
 import com.netflix.zuul.message.http.HttpResponseMessage;
-import com.netflix.zuul.context.SessionContext;
 import com.netflix.zuul.stats.RequestMetricsPublisher;
-
+import jakarta.inject.Inject;
 import javax.annotation.Nullable;
-import javax.inject.Inject;
 
 /**
  * User: michaels@netflix.com
  * Date: 6/4/15
  * Time: 4:26 PM
  */
-public class BasicRequestCompleteHandler implements RequestCompleteHandler
-{
+public class BasicRequestCompleteHandler implements RequestCompleteHandler {
     @Inject
     @Nullable
     private RequestMetricsPublisher requestMetricsPublisher;
 
     @Override
-    public void handle(HttpRequestInfo inboundRequest, HttpResponseMessage response)
-    {
+    public void handle(HttpRequestInfo inboundRequest, HttpResponseMessage response) {
         SessionContext context = inboundRequest.getContext();
 
         // Publish request-level metrics.

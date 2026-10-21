@@ -14,68 +14,65 @@
  *      limitations under the License.
  */
 
-
 package com.netflix.zuul.origins;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.jupiter.api.Test;
 
-@RunWith(JUnit4.class)
-public class OriginNameTest {
+class OriginNameTest {
     @Test
-    public void getAuthority() {
+    void getAuthority() {
         OriginName trusted = OriginName.fromVipAndApp("woodly-doodly", "westerndigital");
 
-        assertEquals("westerndigital", trusted.getAuthority());
+        assertThat(trusted.getAuthority()).isEqualTo("westerndigital");
     }
 
     @Test
-    public void getMetrics() {
+    void getMetrics() {
         OriginName trusted = OriginName.fromVipAndApp("WOODLY-doodly", "westerndigital");
 
-        assertEquals("woodly-doodly", trusted.getMetricId());
-        assertEquals("WOODLY-doodly", trusted.getNiwsClientName());
+        assertThat(trusted.getMetricId()).isEqualTo("woodly-doodly");
+        assertThat(trusted.getNiwsClientName()).isEqualTo("WOODLY-doodly");
     }
 
-
     @Test
-    public void equals() {
+    void equals() {
         OriginName name1 = OriginName.fromVipAndApp("woodly-doodly", "westerndigital");
         OriginName name2 = OriginName.fromVipAndApp("woodly-doodly", "westerndigital", "woodly-doodly");
 
-        assertEquals(name1, name2);
-        assertEquals(name1.hashCode(), name2.hashCode());
+        assertThat(name2).isEqualTo(name1);
+        assertThat(name2.hashCode()).isEqualTo(name1.hashCode());
     }
 
     @Test
     @SuppressWarnings("deprecation")
-    public void equals_legacy_niws() {
+    void equals_legacy_niws() {
         OriginName name1 = OriginName.fromVip("woodly-doodly", "westerndigital");
         OriginName name2 = OriginName.fromVipAndApp("woodly-doodly", "woodly", "westerndigital");
 
-        assertEquals(name1, name2);
-        assertEquals(name1.hashCode(), name2.hashCode());
+        assertThat(name2).isEqualTo(name1);
+        assertThat(name2.hashCode()).isEqualTo(name1.hashCode());
     }
 
     @Test
-    public void equals_legacy() {
+    void equals_legacy() {
         OriginName name1 = OriginName.fromVip("woodly-doodly");
         OriginName name2 = OriginName.fromVipAndApp("woodly-doodly", "woodly", "woodly-doodly");
 
-        assertEquals(name1, name2);
-        assertEquals(name1.hashCode(), name2.hashCode());
+        assertThat(name2).isEqualTo(name1);
+        assertThat(name2.hashCode()).isEqualTo(name1.hashCode());
     }
 
     @Test
-    public void noNull() {
-        assertThrows(NullPointerException.class, () -> OriginName.fromVipAndApp(null, "app"));
-        assertThrows(NullPointerException.class, () -> OriginName.fromVipAndApp("vip", null));
-        assertThrows(NullPointerException.class, () -> OriginName.fromVipAndApp(null, "app", "niws"));
-        assertThrows(NullPointerException.class, () -> OriginName.fromVipAndApp("vip", null, "niws"));
-        assertThrows(NullPointerException.class, () -> OriginName.fromVipAndApp("vip", "app", null));
+    void noNull() {
+        assertThatThrownBy(() -> OriginName.fromVipAndApp(null, "app")).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OriginName.fromVipAndApp("vip", null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OriginName.fromVipAndApp(null, "app", "niws"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OriginName.fromVipAndApp("vip", null, "niws"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OriginName.fromVipAndApp("vip", "app", null)).isInstanceOf(NullPointerException.class);
     }
 }

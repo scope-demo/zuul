@@ -41,14 +41,14 @@ import java.util.Objects;
  * @since 5/11/21
  */
 public final class HttpRequestBuilder {
-    private SessionContext sessionContext;
-    private String protocol;
+    private final SessionContext sessionContext;
+    private final String protocol;
     private String method;
     private String path;
     private HttpQueryParams queryParams;
     private Headers headers;
-    private String clientIp;
-    private String scheme;
+    private final String clientIp;
+    private final String scheme;
     private int port;
     private String serverName;
     private boolean isBuilt;
@@ -86,7 +86,7 @@ public final class HttpRequestBuilder {
     }
 
     public HttpRequestBuilder withQueryParams(HttpQueryParams requestParams) {
-        this.queryParams =  Objects.requireNonNull(requestParams);
+        this.queryParams = Objects.requireNonNull(requestParams);
         return this;
     }
 
@@ -100,8 +100,13 @@ public final class HttpRequestBuilder {
         return this;
     }
 
+    public HttpRequestBuilder withPort(int port) {
+        this.port = port;
+        return this;
+    }
+
     /**
-     * Used to build a request with overriden values
+     * Used to build a request with overridden values
      *
      * @return `HttpRequestMessage`
      */
@@ -110,7 +115,7 @@ public final class HttpRequestBuilder {
             throw new IllegalStateException("Builder must only be invoked once!");
         }
         isBuilt = true;
-        return new HttpRequestMessageImpl(sessionContext, protocol, method, path, queryParams, headers, clientIp, scheme, port,
-                serverName);
+        return new HttpRequestMessageImpl(
+                sessionContext, protocol, method, path, queryParams, headers, clientIp, scheme, port, serverName);
     }
 }

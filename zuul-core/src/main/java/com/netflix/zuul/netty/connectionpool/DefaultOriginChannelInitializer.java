@@ -30,8 +30,6 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 
-import static com.netflix.zuul.netty.server.BaseZuulChannelInitializer.HTTP_CODEC_HANDLER_NAME;
-
 /**
  * Default Origin Channel Initializer
  *
@@ -39,6 +37,9 @@ import static com.netflix.zuul.netty.server.BaseZuulChannelInitializer.HTTP_CODE
  * Date: December 01, 2017
  */
 public class DefaultOriginChannelInitializer extends OriginChannelInitializer {
+
+    public static final String ORIGIN_NETTY_LOGGER = "originNettyLogger";
+    public static final String CONNECTION_POOL_HANDLER = "connectionPoolHandler";
     private final ConnectionPoolConfig connectionPoolConfig;
     private final SslContext sslContext;
     protected final ConnectionPoolHandler connectionPoolHandler;
@@ -48,7 +49,8 @@ public class DefaultOriginChannelInitializer extends OriginChannelInitializer {
     public DefaultOriginChannelInitializer(ConnectionPoolConfig connPoolConfig, Registry spectatorRegistry) {
         this.connectionPoolConfig = connPoolConfig;
         String niwsClientName = connectionPoolConfig.getOriginName().getNiwsClientName();
-        this.connectionPoolHandler = new ConnectionPoolHandler(connectionPoolConfig.getOriginName());
+        this.connectionPoolHandler = new ConnectionPoolHandler(
+                ConnectionPoolMetrics.create(connPoolConfig.getOriginName(), spectatorRegistry));
         this.httpMetricsHandler = new HttpMetricsChannelHandler(spectatorRegistry, "client", niwsClientName);
         this.nettyLogger = new LoggingHandler("zuul.origin.nettylog." + niwsClientName, LogLevel.INFO);
         this.sslContext = getClientSslContext(spectatorRegistry);
@@ -56,7 +58,7 @@ public class DefaultOriginChannelInitializer extends OriginChannelInitializer {
 
     @Override
     protected void initChannel(Channel ch) throws Exception {
-        final ChannelPipeline pipeline = ch.pipeline();
+        ChannelPipeline pipeline = ch.pipeline();
 
         pipeline.addLast(new PassportStateOriginHandler.InboundHandler());
         pipeline.addLast(new PassportStateOriginHandler.OutboundHandler());
@@ -65,23 +67,24 @@ public class DefaultOriginChannelInitializer extends OriginChannelInitializer {
             pipeline.addLast("ssl", sslContext.newHandler(ch.alloc()));
         }
 
-        pipeline.addLast(HTTP_CODEC_HANDLER_NAME, new HttpClientCodec(
-                BaseZuulChannelInitializer.MAX_INITIAL_LINE_LENGTH.get(),
-                BaseZuulChannelInitializer.MAX_HEADER_SIZE.get(),
-                BaseZuulChannelInitializer.MAX_CHUNK_SIZE.get(),
-                false,
-                false
-        ));
+        pipeline.addLast(
+                BaseZuulChannelInitializer.HTTP_CODEC_HANDLER_NAME,
+                new HttpClientCodec(
+                        BaseZuulChannelInitializer.MAX_INITIAL_LINE_LENGTH.get(),
+                        BaseZuulChannelInitializer.MAX_HEADER_SIZE.get(),
+                        BaseZuulChannelInitializer.MAX_CHUNK_SIZE.get(),
+                        false,
+                        false));
         pipeline.addLast(new PassportStateHttpClientHandler.InboundHandler());
         pipeline.addLast(new PassportStateHttpClientHandler.OutboundHandler());
-        pipeline.addLast("originNettyLogger", nettyLogger);
+        pipeline.addLast(ORIGIN_NETTY_LOGGER, nettyLogger);
         pipeline.addLast(httpMetricsHandler);
         addMethodBindingHandler(pipeline);
         pipeline.addLast(HttpClientLifecycleChannelHandler.INBOUND_CHANNEL_HANDLER);
         pipeline.addLast(HttpClientLifecycleChannelHandler.OUTBOUND_CHANNEL_HANDLER);
         pipeline.addLast(new ClientTimeoutHandler.InboundHandler());
         pipeline.addLast(new ClientTimeoutHandler.OutboundHandler());
-        pipeline.addLast("connectionPoolHandler", connectionPoolHandler);
+        pipeline.addLast(CONNECTION_POOL_HANDLER, connectionPoolHandler);
     }
 
     /**
@@ -102,11 +105,10 @@ public class DefaultOriginChannelInitializer extends OriginChannelInitializer {
      *
      * @param pipeline the channel pipeline
      */
-    protected void addMethodBindingHandler(ChannelPipeline pipeline) {
-    }
+    protected void addMethodBindingHandler(ChannelPipeline pipeline) {}
 
+    @Override
     public HttpMetricsChannelHandler getHttpMetricsHandler() {
         return httpMetricsHandler;
     }
 }
-

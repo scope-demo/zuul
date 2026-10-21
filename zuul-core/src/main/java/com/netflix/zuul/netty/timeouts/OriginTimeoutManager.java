@@ -44,8 +44,8 @@ public class OriginTimeoutManager {
     }
 
     @VisibleForTesting
-    static final DynamicLongProperty MAX_OUTBOUND_READ_TIMEOUT_MS =
-            new DynamicLongProperty("zuul.origin.readtimeout.max", Duration.ofSeconds(90).toMillis());
+    static final DynamicLongProperty MAX_OUTBOUND_READ_TIMEOUT_MS = new DynamicLongProperty(
+            "zuul.origin.readtimeout.max", Duration.ofSeconds(90).toMillis());
 
     /**
      * Derives the read timeout from the configuration.  This implementation prefers the longer of either the origin

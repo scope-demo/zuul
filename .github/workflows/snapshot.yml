@@ -4,32 +4,27 @@ on:
   push:
     branches:
       - master
+      - zuul-v4
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: Publish
     steps:
-      - uses: actions/checkout@v2
+      - name: Setup Git
+        run: |
+          git config --global user.name 'Zuul Build'
+          git config --global user.email 'zuul-build@netflix.com'
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v6
         with:
-          distribution: 'zulu'
-          java-version: 8
-      - uses: actions/cache@v2.1.6
-        id: gradle-cache
-        with:
-          path: |
-            ~/.gradle/caches
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
-      - uses: actions/cache@v2.1.6
-        id: gradle-wrapper-cache
-        with:
-          path: |
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradlewrapper-${{ hashFiles('gradle/wrapper/*') }}
-      - name: Build
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'gradle'
+      - name: Build snapshot
         run: ./gradlew build snapshot
         env:
           NETFLIX_OSS_SIGNING_KEY: ${{ secrets.ORG_SIGNING_KEY }}

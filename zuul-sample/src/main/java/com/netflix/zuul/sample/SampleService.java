@@ -16,19 +16,16 @@
 
 package com.netflix.zuul.sample;
 
-import rx.Observable;
-
-import javax.inject.Singleton;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Sample Service for demonstration in SampleServiceFilter.
- *
+ * <p>
  * Author: Arthur Gonigberg
  * Date: January 04, 2018
  */
-@Singleton
 public class SampleService {
 
     private final AtomicBoolean status;
@@ -42,7 +39,8 @@ public class SampleService {
         return status.get();
     }
 
-    public Observable<String> makeSlowRequest() {
-        return Observable.just("test").delay(500, TimeUnit.MILLISECONDS);
+    public CompletableFuture<String> makeSlowRequest() {
+        return CompletableFuture.supplyAsync(
+                () -> "test", CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS));
     }
 }

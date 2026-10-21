@@ -29,7 +29,6 @@ import io.netty.handler.timeout.IdleStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * User: Mike Smith Date: 9/24/16 Time: 2:41 PM
  */
@@ -74,12 +73,15 @@ public final class ServerStateHandler {
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             connectionErrors.increment();
-            registry.counter("server.connection.exception.inbound",
-                    "handler", "ServerStateHandler.InboundHandler",
-                    "id", cause.getClass().getSimpleName())
+            registry.counter(
+                            "server.connection.exception.inbound",
+                            "handler",
+                            "ServerStateHandler.InboundHandler",
+                            "id",
+                            cause.getClass().getSimpleName())
                     .increment();
             passport(ctx).add(PassportState.SERVER_CH_EXCEPTION);
-            logger.info("Connection error on Inbound: {} ", cause);
+            logger.info("Connection error on Inbound", cause);
 
             super.exceptionCaught(ctx, cause);
         }
@@ -87,7 +89,7 @@ public final class ServerStateHandler {
         @Override
         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
             if (evt instanceof IdleStateEvent) {
-                final CurrentPassport passport = CurrentPassport.fromChannel(ctx.channel());
+                CurrentPassport passport = CurrentPassport.fromChannel(ctx.channel());
                 if (passport != null) {
                     passport.add(PassportState.SERVER_CH_IDLE_TIMEOUT);
                 }
@@ -121,10 +123,13 @@ public final class ServerStateHandler {
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             passport(ctx).add(PassportState.SERVER_CH_EXCEPTION);
             if (cause instanceof Errors.NativeIoException) {
-                logger.debug("PassportStateServerHandler Outbound NativeIoException " + cause);
-                registry.counter("server.connection.exception.outbound",
-                        "handler", "ServerStateHandler.OutboundHandler",
-                        "id", cause.getClass().getSimpleName())
+                logger.debug("PassportStateServerHandler Outbound NativeIoException", cause);
+                registry.counter(
+                                "server.connection.exception.outbound",
+                                "handler",
+                                "ServerStateHandler.OutboundHandler",
+                                "id",
+                                cause.getClass().getSimpleName())
                         .increment();
 
             } else {

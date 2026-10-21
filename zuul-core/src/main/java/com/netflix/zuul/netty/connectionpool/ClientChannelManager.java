@@ -16,13 +16,12 @@
 
 package com.netflix.zuul.netty.connectionpool;
 
-
 import com.netflix.zuul.discovery.DiscoveryResult;
 import com.netflix.zuul.passport.CurrentPassport;
 import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.Promise;
-
 import java.net.InetAddress;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -30,8 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Date: 7/8/16
  * Time: 12:36 PM
  */
-public interface ClientChannelManager
-{
+public interface ClientChannelManager {
     void init();
 
     boolean isAvailable();
@@ -39,6 +37,10 @@ public interface ClientChannelManager
     int getInflightRequestsCount();
 
     void shutdown();
+
+    default void gracefulShutdown() {
+        shutdown();
+    }
 
     boolean release(PooledConnection conn);
 
@@ -52,6 +54,15 @@ public interface ClientChannelManager
             AtomicReference<? super InetAddress> selectedHostAddr);
 
     boolean isCold();
+
+    /**
+     * Returns a read-only snapshot of all origin servers this manager currently load-balances over, or an
+     * empty list when the manager cannot expose them. This does not pick or acquire a connection - it is a
+     * view for callers that need per-server discovery metadata.
+     */
+    default List<DiscoveryResult> getServers() {
+        return List.of();
+    }
 
     boolean remove(PooledConnection conn);
 

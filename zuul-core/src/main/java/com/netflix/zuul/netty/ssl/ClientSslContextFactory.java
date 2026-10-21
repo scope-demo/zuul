@@ -37,17 +37,14 @@ public final class ClientSslContextFactory extends BaseSslContextFactory {
 
     private static final Logger log = LoggerFactory.getLogger(ClientSslContextFactory.class);
 
-    private static final ServerSslConfig DEFAULT_CONFIG = new ServerSslConfig(
-            maybeAddTls13(ENABLE_CLIENT_TLS13.get(), "TLSv1.2"),
-            ServerSslConfig.getDefaultCiphers(),
-            null,
-            null
-    );
+    private static final ServerSslConfig DEFAULT_CONFIG = ServerSslConfig.builder()
+            .protocols(maybeAddTls13(ENABLE_CLIENT_TLS13.get(), "TLSv1.2"))
+            .ciphers(ServerSslConfig.getDefaultCiphers())
+            .build();
 
     public ClientSslContextFactory(Registry spectatorRegistry) {
         super(spectatorRegistry, DEFAULT_CONFIG);
     }
-
 
     public ClientSslContextFactory(Registry spectatorRegistry, ServerSslConfig serverSslConfig) {
         super(spectatorRegistry, serverSslConfig);
@@ -55,20 +52,18 @@ public final class ClientSslContextFactory extends BaseSslContextFactory {
 
     public SslContext getClientSslContext() {
         try {
-            return SslContextBuilder
-                    .forClient()
+            return SslContextBuilder.forClient()
                     .sslProvider(chooseSslProvider())
                     .ciphers(getCiphers(), getCiphersFilter())
                     .protocols(getProtocols())
                     .build();
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("Error loading SslContext client request.", e);
             throw new RuntimeException("Error configuring SslContext for client request!", e);
         }
     }
 
-    static String[] maybeAddTls13(boolean enableTls13, String ... defaultProtocols) {
+    static String[] maybeAddTls13(boolean enableTls13, String... defaultProtocols) {
         if (enableTls13) {
             String[] protocols = new String[defaultProtocols.length + 1];
             System.arraycopy(defaultProtocols, 0, protocols, 1, defaultProtocols.length);

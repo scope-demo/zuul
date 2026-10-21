@@ -16,31 +16,58 @@
 
 package com.netflix.zuul.netty.ssl;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.netflix.spectator.api.DefaultRegistry;
+import io.netty.handler.ssl.OpenSslClientContext;
+import io.netty.handler.ssl.SslContext;
 import java.util.Arrays;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
-
+import java.util.List;
+import javax.net.ssl.SSLSessionContext;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link ClientSslContextFactory}.
  */
-@RunWith(JUnit4.class)
-public class ClientSslContextFactoryTest {
+class ClientSslContextFactoryTest {
 
     @Test
-    public void enableTls13() {
+    void enableTls13() {
         String[] protos = ClientSslContextFactory.maybeAddTls13(true, "TLSv1.2");
 
-        assertEquals(Arrays.asList("TLSv1.3", "TLSv1.2"), Arrays.asList(protos));
+        assertThat(Arrays.asList(protos)).isEqualTo(Arrays.asList("TLSv1.3", "TLSv1.2"));
     }
 
     @Test
-    public void disableTls13() {
+    void disableTls13() {
         String[] protos = ClientSslContextFactory.maybeAddTls13(false, "TLSv1.2");
 
-        assertEquals(Arrays.asList("TLSv1.2"), Arrays.asList(protos));
+        assertThat(Arrays.asList(protos)).isEqualTo(Arrays.asList("TLSv1.2"));
+    }
+
+    @Test
+    void testGetSslContext() {
+        ClientSslContextFactory factory = new ClientSslContextFactory(new DefaultRegistry());
+        SslContext sslContext = factory.getClientSslContext();
+        assertThat(sslContext).isInstanceOf(OpenSslClientContext.class);
+        assertThat(sslContext.isClient()).isTrue();
+        assertThat(sslContext.isServer()).isFalse();
+        SSLSessionContext sessionContext = sslContext.sessionContext();
+        assertThat(sessionContext.getSessionCacheSize()).isEqualTo(20480);
+        assertThat(sessionContext.getSessionTimeout()).isEqualTo(300);
+    }
+
+    @Test
+    void testGetProtocols() {
+        ClientSslContextFactory factory = new ClientSslContextFactory(new DefaultRegistry());
+        assertThat(factory.getProtocols()).isEqualTo(new String[] {"TLSv1.2"});
+    }
+
+    @Test
+    void testGetCiphers() throws Exception {
+        ClientSslContextFactory factory = new ClientSslContextFactory(new DefaultRegistry());
+        List<String> ciphers = factory.getCiphers();
+        assertThat(ciphers).isNotEmpty();
+        assertThat(ciphers).doesNotHaveDuplicates();
     }
 }

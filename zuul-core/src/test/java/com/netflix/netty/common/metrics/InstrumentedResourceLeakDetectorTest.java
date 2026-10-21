@@ -16,33 +16,33 @@
 
 package com.netflix.netty.common.metrics;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import io.netty.buffer.ByteBuf;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-@RunWith(MockitoJUnitRunner.class)
-public class InstrumentedResourceLeakDetectorTest {
+@ExtendWith(MockitoExtension.class)
+class InstrumentedResourceLeakDetectorTest {
 
     InstrumentedResourceLeakDetector<Object> leakDetector;
 
-    @Before
-    public void setup() {
+    @BeforeEach
+    void setup() {
         leakDetector = new InstrumentedResourceLeakDetector<>(ByteBuf.class, 1);
     }
 
     @Test
-    public void test() {
+    void test() {
         leakDetector.reportTracedLeak("test", "test");
-        assertEquals(leakDetector.leakCounter.get(), 1);
+        assertThat(leakDetector.leakCounter.get()).isEqualTo(1);
 
         leakDetector.reportTracedLeak("test", "test");
-        assertEquals(leakDetector.leakCounter.get(), 2);
+        assertThat(leakDetector.leakCounter.get()).isEqualTo(2);
 
         leakDetector.reportTracedLeak("test", "test");
-        assertEquals(leakDetector.leakCounter.get(), 3);
+        assertThat(leakDetector.leakCounter.get()).isEqualTo(3);
     }
 }

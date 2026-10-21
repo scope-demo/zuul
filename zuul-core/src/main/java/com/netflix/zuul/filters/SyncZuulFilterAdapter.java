@@ -17,11 +17,7 @@
 package com.netflix.zuul.filters;
 
 import com.netflix.zuul.message.ZuulMessage;
-import io.netty.handler.codec.http.HttpContent;
-import rx.Observable;
-
-import static com.netflix.zuul.filters.FilterSyncType.SYNC;
-import static com.netflix.zuul.filters.FilterType.ENDPOINT;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Base class to help implement SyncZuulFilter. Note that the class BaseSyncFilter does exist but it derives from
@@ -38,7 +34,10 @@ import static com.netflix.zuul.filters.FilterType.ENDPOINT;
  * TL;DR use this as a base class for your ZuulFilter if you intend to create new instances of ZuulFilter
  * Created by saroskar on 6/8/17.
  */
-public abstract class SyncZuulFilterAdapter<I extends ZuulMessage, O extends ZuulMessage> implements SyncZuulFilter<I, O> {
+public abstract class SyncZuulFilterAdapter<I extends ZuulMessage, O extends ZuulMessage>
+        implements SyncZuulFilter<I, O> {
+
+    private final boolean processesContentChunks = ZuulFilter.overridesProcessContentChunk(getClass());
 
     @Override
     public boolean isDisabled() {
@@ -58,7 +57,7 @@ public abstract class SyncZuulFilterAdapter<I extends ZuulMessage, O extends Zuu
 
     @Override
     public FilterType filterType() {
-        return ENDPOINT;
+        return FilterType.ENDPOINT;
     }
 
     @Override
@@ -67,13 +66,13 @@ public abstract class SyncZuulFilterAdapter<I extends ZuulMessage, O extends Zuu
     }
 
     @Override
-    public Observable<O> applyAsync(I input) {
-        return Observable.just(apply(input));
+    public CompletableFuture<O> applyAsync(I input) {
+        return CompletableFuture.completedFuture(apply(input));
     }
 
     @Override
     public FilterSyncType getSyncType() {
-        return SYNC;
+        return FilterSyncType.SYNC;
     }
 
     @Override
@@ -82,17 +81,17 @@ public abstract class SyncZuulFilterAdapter<I extends ZuulMessage, O extends Zuu
     }
 
     @Override
-    public HttpContent processContentChunk(ZuulMessage zuulMessage, HttpContent chunk) {
-        return chunk;
+    public boolean processesContentChunks() {
+        return processesContentChunks;
     }
 
     @Override
     public void incrementConcurrency() {
-        //NOOP for sync filters
+        // NOOP for sync filters
     }
 
     @Override
     public void decrementConcurrency() {
-        //NOOP for sync filters
+        // NOOP for sync filters
     }
 }
